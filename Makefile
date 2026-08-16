@@ -22,7 +22,7 @@ help:
 	@echo "  test                     Run go test ./..."
 	@echo ""
 	@echo "Release (see RELEASE.md):"
-	@echo "  release VERSION=v1.2.3   Lint, cross-build, package macOS tarballs, checksum, patch formula"
+	@echo "  release VERSION=v1.2.3   Lint, record GIF, cross-build, package, checksum, patch formula"
 	@echo "  package-macos            Tar dist/ macOS binaries into versioned .tar.gz files"
 	@echo "  checksums                shasum -a 256 the macOS tarballs into dist/checksums.txt"
 	@echo "  update-formula           Patch Formula/guh.rb with new version + SHA256s"
@@ -31,6 +31,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
 
 gif: build
+	@command -v vhs >/dev/null || { echo "vhs is required to record guh.gif (brew install vhs)"; exit 1; }
 	vhs demo.tape
 
 fmt:
@@ -71,9 +72,9 @@ update-formula: checksums
 # Full release flow: make release VERSION=v1.2.3
 # Then: git tag v1.2.3 && git push origin v1.2.3
 # Then upload dist/ tarballs to the GitHub release
-release: lint update-formula
+release: lint gif update-formula
 	@echo "Formula updated for $(VERSION). Next steps:"
-	@echo "  1. git add Formula/$(BIN).rb && git commit -m 'Release $(VERSION)'"
+	@echo "  1. git add Formula/$(BIN).rb guh.gif && git commit -m 'Release $(VERSION)'"
 	@echo "  2. git tag $(VERSION) && git push origin master $(VERSION)"
 	@echo "  3. Upload $(DIST)/$(BIN)-$(VERSION)-darwin-*.tar.gz to the GitHub release"
 

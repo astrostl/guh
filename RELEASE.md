@@ -4,6 +4,7 @@
 
 - `gh` CLI authenticated (`gh auth status`)
 - Go toolchain installed
+- `vhs` (and its `ffmpeg` / `ttyd` deps) for the demo GIF
 - Push access to `astrostl/guh`
 
 ## Steps
@@ -20,7 +21,7 @@ Diff the TUI and GitHub client against the previous release tag and update `READ
 git diff $(git describe --tags --abbrev=0) -- tui.go github.go main.go README.md
 ```
 
-Commit the README updates as part of the release commit in step 4.
+Commit the README updates as part of the release commit in step 5.
 
 ### 3. Smoke-test the binary
 
@@ -43,6 +44,7 @@ make release VERSION=v1.2.3
 
 This will:
 - Verify `gofmt -s` formatting, `LICENSE` presence, and `go vet` (`lint`)
+- Build `./guh` and record `guh.gif` from `demo.tape` (`vhs`)
 - Cross-compile binaries for all platforms
 - Package the macOS binaries into tarballs (`dist/guh-v1.2.3-darwin-{arm64,amd64}.tar.gz`)
 - Compute SHA256 checksums
@@ -51,7 +53,7 @@ This will:
 ### 5. Commit and tag
 
 ```sh
-git add README.md Formula/guh.rb
+git add README.md Formula/guh.rb guh.gif
 git commit -m "Release v1.2.3"
 git tag v1.2.3
 git push origin master v1.2.3
@@ -93,6 +95,7 @@ guh --version
 |--------|-------------|
 | `make help` | Print available targets (default goal — runs when you type just `make`) |
 | `make build` | Build `./guh` for the current platform with version stamping |
+| `make gif` | Build `./guh` and record `guh.gif` from `demo.tape` (needs `vhs`) |
 | `make fmt` | Formats all Go files with `gofmt -s -w` |
 | `make lint` | Checks `gofmt -s` compliance, LICENSE presence, and `go vet` |
 | `make test` | Runs `go test ./...` |
@@ -100,7 +103,7 @@ guh --version
 | `make package-macos` | Tars the macOS binaries into versioned `.tar.gz` files |
 | `make checksums` | Runs `shasum -a 256` and writes `dist/checksums.txt` |
 | `make update-formula` | Patches `Formula/guh.rb` with new version and SHA256s |
-| `make release` | Runs lint + all of the above and prints next steps |
+| `make release` | Runs lint, records the demo GIF, then all of the above and prints next steps |
 | `make clean` | Removes `./guh` and `./dist` |
 
 ## How the Homebrew tap works
