@@ -4,7 +4,7 @@ A terminal UI for the GitHub repos your `gh` session can see. Yours or an org: o
 
 ![guh](guh.gif)
 
-Needs [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`). Run it in a terminal for the UI. Pipe or redirect and you get a plain table.
+Needs an authenticated [GitHub CLI](https://cli.github.com/). Run it in a terminal for the UI. Pipe or redirect and you get a plain table.
 
 Homebrew (macOS):
 
