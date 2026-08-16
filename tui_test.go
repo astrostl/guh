@@ -382,7 +382,7 @@ func TestPublicToggleIncludesForks(t *testing.T) {
 	}
 }
 
-func TestSelectedCursorIsCoral(t *testing.T) {
+func TestSelectedCursorIsMagenta(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	cw := computeColWidths(80)
 	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
@@ -391,9 +391,9 @@ func TestSelectedCursorIsCoral(t *testing.T) {
 		item:        Item{Repo: "owner/name", UpdatedAt: now},
 		issuesCount: 1,
 	}
-	got := renderRepoRow(r, true, cw, 80, now)
-	if !strings.Contains(got, "209") {
-		t.Fatalf("expected coral cursor color 209 in selected row, got %q", got)
+	got := renderRepoRow(r, true, cw, 80, now, true, true)
+	if !strings.Contains(got, "207") {
+		t.Fatalf("expected main cursor color 207 in selected row, got %q", got)
 	}
 	if !strings.Contains(stripANSI(got), "▸ owner/name") {
 		t.Fatalf("expected fold marker on selected unfoldable row: %q", stripANSI(got))
@@ -470,7 +470,7 @@ func TestViewMultiColumnLayout(t *testing.T) {
 	if !strings.HasPrefix(top, "╭") || !strings.Contains(top, "guh") {
 		t.Fatalf("expected title in top border, got %q", top)
 	}
-	if !strings.Contains(top, "2") || !strings.Contains(top, "13") {
+	if !strings.Contains(top, "13") {
 		t.Fatalf("expected unlabeled stats embedded in top border, got %q", top)
 	}
 	if !strings.Contains(top, "─") {
@@ -513,14 +513,15 @@ func TestTopBorderStatsAlignWithHeader(t *testing.T) {
 	width := 100
 	bodyW := innerWidth(width)
 	cw := computeColWidths(bodyW)
-	top := displayCells(stripANSI(titledRuleWithOverlay(width, "guh", renderColStats(cw, 12, 88, 4, 3, 99, bodyW))))
-	header := displayCells(stripANSI(sideLine(width, renderColHeader(cw, SortUpdated, bodyW))))
+	statsAt := cw.typeCol + cw.gap + cw.repo + cw.gap
+	top := displayCells(stripANSI(titledRuleWithOverlay(width, "guh", renderCountStats(cw, 88, 4, 3, 99, true, true), statsAt)))
+	header := displayCells(stripANSI(sideLine(width, renderColHeader(cw, SortUpdated, bodyW, true, true))))
 	data := displayCells(stripANSI(sideLine(width, renderRepoRow(row{
 		typ:         rowRepo,
 		item:        Item{Repo: "owner/name", Stars: 7, CommitCount: 21, UpdatedAt: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)},
 		issuesCount: 4,
 		prsCount:    3,
-	}, false, cw, bodyW, time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)))))
+	}, false, cw, bodyW, time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC), true, true))))
 
 	if len(top) != len(header) || len(header) != len(data) {
 		t.Fatalf("widths top=%d header=%d data=%d\n%s\n%s\n%s", len(top), len(header), len(data), string(top), string(header), string(data))
@@ -549,6 +550,18 @@ func TestTopBorderStatsAlignWithHeader(t *testing.T) {
 	}
 }
 
+func TestDropDisplayPrefixKeepsBorderColor(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	line := dashFill(20)
+	got := dropDisplayPrefix(line, 8)
+	if !strings.Contains(got, "240") {
+		t.Fatalf("expected border color 240 after cutting a dash run, got %q", got)
+	}
+	if strings.Contains(stripANSI(titledRuleWithOverlay(100, "guh · long-org-name", renderCountStats(computeColWidths(innerWidth(100)), 88, 4, 3, 99, true, true), 40)), "…") {
+		t.Fatal("top rule should not insert an ellipsis")
+	}
+}
+
 func displayCells(s string) []rune {
 	s = strings.ReplaceAll(s, "─", "-")
 	return []rune(s)
@@ -556,7 +569,7 @@ func displayCells(s string) []rune {
 
 func TestRenderColStatsAlignsWithColumns(t *testing.T) {
 	cw := computeColWidths(80)
-	plain := strings.ReplaceAll(stripANSI(renderColStats(cw, 12, 88, 4, 3, 99, 80)), "─", " ")
+	plain := strings.ReplaceAll(stripANSI(renderColStats(cw, 12, 88, 4, 3, 99, 80, true, true)), "─", " ")
 	for _, labeled := range []string{"repos", "issues", "PRs", "Stars", "★"} {
 		if strings.Contains(plain, labeled) {
 			t.Fatalf("stats should be unlabeled, found %q in %q", labeled, plain)

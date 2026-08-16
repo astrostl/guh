@@ -13,33 +13,33 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// Color definitions
 const (
+	cMain   = "207" // main, sort, cursor
+	cCommit = "75"
+	cIssue  = "197"
+	cPR     = "141"
+	cStar   = "227"
+
 	cBorder   = "240"
-	cTitle    = "214"
 	cText     = "254"
 	cTextDim  = "245"
 	cMuted    = "242"
-	cIssue    = "214"
-	cPR       = "141"
-	cStar     = "220"
-	cCommit   = "116"
-	cURL      = "117"
+	cURL      = cPR
 	cOk       = "114"
-	cErr      = "167"
+	cErr      = "203"
 	cSelBg    = "237"
 	cSelFg    = "255"
-	cCursor   = "209"
+	cCursor   = cMain
 	cBranch   = "241"
 	cHeaderFg = "252"
 	cSearchBg = "238"
-	cSearchFg = "220"
+	cSearchFg = cMain
 )
 
 // Styles
 var (
 	styleBorder     = lipgloss.NewStyle().Foreground(lipgloss.Color(cBorder))
-	styleTitle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cTitle))
+	styleTitle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cMain))
 	styleText       = lipgloss.NewStyle().Foreground(lipgloss.Color(cText))
 	styleTextDim    = lipgloss.NewStyle().Foreground(lipgloss.Color(cTextDim))
 	styleMuted      = lipgloss.NewStyle().Foreground(lipgloss.Color(cMuted))
@@ -51,12 +51,12 @@ var (
 	styleStatus     = lipgloss.NewStyle().Foreground(lipgloss.Color(cOk))
 	styleError      = lipgloss.NewStyle().Foreground(lipgloss.Color(cErr))
 	styleHelp       = lipgloss.NewStyle().Foreground(lipgloss.Color(cTextDim))
-	styleHelpKey    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cTitle))
+	styleHelpKey    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cMain))
 	styleBranch     = lipgloss.NewStyle().Foreground(lipgloss.Color(cBranch))
 	styleSelected   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cSelFg)).Background(lipgloss.Color(cSelBg))
 	styleCursor     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cCursor)).Background(lipgloss.Color(cSelBg))
 	styleHeader     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cHeaderFg))
-	styleHeaderSort = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cTitle))
+	styleHeaderSort = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cMain))
 	styleSearch     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cSearchFg)).Background(lipgloss.Color(cSearchBg))
 )
 
@@ -403,7 +403,7 @@ func fetchOrgsCmd(demo bool) tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	return m.fetchCmd()
+	return tea.Batch(m.fetchCmd(), fetchOrgsCmd(m.demo))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1487,10 +1487,11 @@ func (m model) View() string {
 	bodyW := innerWidth(m.width)
 	cw := computeColWidths(bodyW)
 
-	repos, commits, issues, prs, totalStars := m.visibleRepoStats()
+	_, commits, issues, prs, totalStars := m.visibleRepoStats()
 
 	var titleRight string
 	var topOverlay string
+	var overlayAt int
 	if m.loading {
 		if m.owner != "" {
 			titleRight = styleMuted.Render("fetching " + m.owner + "…")
@@ -1524,8 +1525,9 @@ func (m model) View() string {
 			body = []string{styleMuted.Render("  No repos, issues, or pull requests found")}
 		}
 	default:
-		topOverlay = renderColStats(cw, repos, commits, issues, prs, totalStars, bodyW)
-		pinned = []string{renderColHeader(cw, m.sortField, bodyW)}
+		topOverlay = renderCountStats(cw, commits, issues, prs, totalStars, m.commitsReady(), m.issuesReady())
+		overlayAt = cw.typeCol + cw.gap + cw.repo + cw.gap
+		pinned = []string{renderColHeader(cw, m.sortField, bodyW, m.commitsReady(), m.issuesReady())}
 		h := m.listHeight()
 		end := m.scroll + h
 		if end > len(m.rows) {
@@ -1563,8 +1565,12 @@ func (m model) View() string {
 	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s sort · / filter · ? help · q quit"))
 
 	titleLeft := styleTitle.Render("guh")
-	if m.owner != "" {
-		titleLeft = styleTitle.Render("guh") + styleMuted.Render(" · "+m.owner)
+	who := m.owner
+	if who == "" {
+		who = m.login
+	}
+	if who != "" {
+		titleLeft = styleTitle.Render("guh") + styleMuted.Render(" · "+who)
 	}
 	if m.onlyPrivate {
 		titleLeft += styleMuted.Render(" · private")
@@ -1578,7 +1584,7 @@ func (m model) View() string {
 	if m.onlyNonForks {
 		titleLeft += styleMuted.Render(" · sources")
 	}
-	return renderFrame(m.width, m.height, titleLeft, titleRight, topOverlay, pinned, body, foot)
+	return renderFrame(m.width, m.height, titleLeft, titleRight, topOverlay, overlayAt, pinned, body, foot)
 }
 
 func renderInspectorLine(item Item, width int, now time.Time) string {
@@ -1632,7 +1638,7 @@ func renderInspectorLine(item Item, width int, now time.Time) string {
 			tags = append(tags, styleTextDim.Render(item.Language))
 		}
 		if item.Stars > 0 {
-			tags = append(tags, styleStar.Render(fmt.Sprintf("★ %d", item.Stars)))
+			tags = append(tags, styleMuted.Render(fmt.Sprintf("★ %d", item.Stars)))
 		}
 		if item.Description != "" {
 			tags = append(tags, styleText.Render(item.Description))
@@ -1683,31 +1689,34 @@ func computeColWidths(bodyWidth int) colWidths {
 	}
 }
 
-func renderColStats(cw colWidths, repos, commits, issues, prs, stars, width int) string {
+func renderColStats(cw colWidths, repos, commits, issues, prs, stars, width int, commitsReady, issuesReady bool) string {
 	typeCell := dashFill(cw.typeCol)
 	// Indent with the same 2-cell cursor gutter used by repo rows.
-	repoCell := embedTokenLeft(cw.repo, 2, styleText.Render(fmt.Sprintf("%d", repos)))
-	commitCell := embedTokenRight(cw.commits, styleCount(commits, styleCommit, fmt.Sprintf("%d", commits)))
-	issCell := embedTokenRight(cw.issues, styleCount(issues, styleIssue, fmt.Sprintf("%d", issues)))
-	prCell := embedTokenRight(cw.prs, styleCount(prs, stylePR, fmt.Sprintf("%d", prs)))
-	starsCell := embedTokenRight(cw.stars, styleCount(stars, styleStar, fmt.Sprintf("%d", stars)))
-	updCell := dashFill(cw.update)
-
+	repoCell := embedTokenLeft(cw.repo, 2, styleMuted.Render(fmt.Sprintf("%d", repos)))
 	line := typeCell +
 		dashFill(cw.gap) + repoCell +
-		dashFill(cw.gap) + commitCell +
+		dashFill(cw.gap) + renderCountStats(cw, commits, issues, prs, stars, commitsReady, issuesReady)
+	return padDashes(line, width)
+}
+
+func renderCountStats(cw colWidths, commits, issues, prs, stars int, commitsReady, issuesReady bool) string {
+	commitCell := embedTokenRight(cw.commits, styleCount(commits, styleCommit, fmt.Sprintf("%d", commits), commitsReady))
+	issCell := embedTokenRight(cw.issues, styleCount(issues, styleIssue, fmt.Sprintf("%d", issues), issuesReady))
+	prCell := embedTokenRight(cw.prs, styleCount(prs, stylePR, fmt.Sprintf("%d", prs), issuesReady))
+	starsCell := embedTokenRight(cw.stars, styleCount(stars, styleStar, fmt.Sprintf("%d", stars), true))
+	updCell := dashFill(cw.update)
+	return commitCell +
 		gapAfterToken(cw.gap) + issCell +
 		gapAfterToken(cw.gap) + prCell +
 		gapAfterToken(cw.gap) + starsCell +
 		gapAfterToken(cw.gap) + updCell
-	return padDashes(line, width)
 }
 
 func gapAfterToken(n int) string {
 	if n <= 0 {
 		return ""
 	}
-	return " " + dashFill(n-1)
+	return styleBorder.Render(" ") + dashFill(n-1)
 }
 
 func dashFill(n int) string {
@@ -1726,7 +1735,7 @@ func padDashes(s string, width int) string {
 		return s
 	}
 	if w > width {
-		return truncate(s, width)
+		return clipDisplay(s, width)
 	}
 	return s + dashFill(width-w)
 }
@@ -1750,21 +1759,21 @@ func embedTokenLeft(width, pad int, s string) string {
 		}
 		return dashFill(pad) + s + dashFill(rest)
 	}
-	return dashFill(left) + " " + s + " " + dashFill(width-left-need)
+	return dashFill(left) + styleBorder.Render(" ") + s + styleBorder.Render(" ") + dashFill(width-left-need)
 }
 
 func embedTokenRight(width int, s string) string {
 	sw := lipgloss.Width(s)
 	if sw >= width {
-		return truncate(s, width)
+		return clipDisplay(s, width)
 	}
 	if sw+1 >= width {
 		return dashFill(width-sw) + s
 	}
-	return dashFill(width-sw-1) + " " + s
+	return dashFill(width-sw-1) + styleBorder.Render(" ") + s
 }
 
-func renderColHeader(cw colWidths, sortField SortField, width int) string {
+func renderColHeader(cw colWidths, sortField SortField, width int, commitsReady, issuesReady bool) string {
 	typeTitle := "TYPE"
 	repoTitle := "REPO"
 	if sortField == SortName {
@@ -1796,15 +1805,32 @@ func renderColHeader(cw colWidths, sortField SortField, width int) string {
 		updTitle = "UPDATE ▼"
 	}
 
-	line := padTo(typeTitle, cw.typeCol) +
-		strings.Repeat(" ", cw.gap) + padTo(repoTitle, cw.repo) +
-		strings.Repeat(" ", cw.gap) + alignRight(commitsTitle, cw.commits) +
-		strings.Repeat(" ", cw.gap) + alignRight(issTitle, cw.issues) +
-		strings.Repeat(" ", cw.gap) + alignRight(prsTitle, cw.prs) +
-		strings.Repeat(" ", cw.gap) + alignRight(starsTitle, cw.stars) +
-		strings.Repeat(" ", cw.gap) + alignRight(updTitle, cw.update)
+	gap := strings.Repeat(" ", cw.gap)
+	line := styleHeader.Render(padTo(typeTitle, cw.typeCol)) +
+		gap + headerCell(repoTitle, cw.repo, false, sortField == SortName, true) +
+		gap + headerCell(commitsTitle, cw.commits, true, sortField == SortCommits, commitsReady) +
+		gap + headerCell(issTitle, cw.issues, true, sortField == SortIssues, issuesReady) +
+		gap + headerCell(prsTitle, cw.prs, true, sortField == SortPRs, issuesReady) +
+		gap + headerCell(starsTitle, cw.stars, true, sortField == SortStars, true) +
+		gap + headerCell(updTitle, cw.update, true, sortField == SortUpdated, true)
 
-	return styleHeader.Render(padTo(line, width))
+	return padTo(line, width)
+}
+
+func headerCell(title string, width int, right, sorted, ready bool) string {
+	s := title
+	if right {
+		s = alignRight(title, width)
+	} else {
+		s = padTo(title, width)
+	}
+	if sorted {
+		return styleHeaderSort.Render(s)
+	}
+	if !ready {
+		return styleMuted.Render(s)
+	}
+	return styleHeader.Render(s)
 }
 
 func (m model) renderRow(i int, cw colWidths, width int) string {
@@ -1817,7 +1843,15 @@ func (m model) renderRow(i int, cw colWidths, width int) string {
 	if r.typ == rowIssue || r.typ == rowPR {
 		return renderChildRow(r, selected, cw, width, m.now)
 	}
-	return renderRepoRow(r, selected, cw, width, m.now)
+	return renderRepoRow(r, selected, cw, width, m.now, m.commitsReady(), m.issuesReady())
+}
+
+func (m model) issuesReady() bool {
+	return m.demo || (!m.loading && !m.awaitActivity)
+}
+
+func (m model) commitsReady() bool {
+	return m.issuesReady() && m.commitInflight == 0 && len(m.commitQueue) == 0
 }
 
 func repoPrefix(r row, selected bool) string {
@@ -1833,7 +1867,7 @@ func repoPrefix(r row, selected bool) string {
 	return "  "
 }
 
-func renderRepoRow(r row, selected bool, cw colWidths, width int, now time.Time) string {
+func renderRepoRow(r row, selected bool, cw colWidths, width int, now time.Time, commitsReady, issuesReady bool) string {
 	cursor := repoPrefix(r, selected)
 
 	typeStr := r.item.TypeEmoji()
@@ -1892,21 +1926,21 @@ func renderRepoRow(r row, selected bool, cw colWidths, width int, now time.Time)
 	repoFormatted := prefix + styleText.Render(name)
 	repoCell := padTo(repoFormatted, cw.repo)
 
-	commitCell := alignRight(styleCount(r.item.CommitCount, styleCommit, commitStr), cw.commits)
-	issCell := alignRight(styleCount(r.issuesCount, styleIssue, issStr), cw.issues)
-	prCell := alignRight(styleCount(r.prsCount, stylePR, prStr), cw.prs)
-	starsCell := alignRight(styleCount(r.item.Stars, styleStar, starsStr), cw.stars)
+	commitCell := alignRight(styleCount(r.item.CommitCount, styleCommit, commitStr, commitsReady), cw.commits)
+	issCell := alignRight(styleCount(r.issuesCount, styleIssue, issStr, issuesReady), cw.issues)
+	prCell := alignRight(styleCount(r.prsCount, stylePR, prStr, issuesReady), cw.prs)
+	starsCell := alignRight(styleCount(r.item.Stars, styleStar, starsStr, true), cw.stars)
 	updCell := alignRight(styleMuted.Render(updStr), cw.update)
 
 	line := typeCell + strings.Repeat(" ", cw.gap) + repoCell + strings.Repeat(" ", cw.gap) + commitCell + strings.Repeat(" ", cw.gap) + issCell + strings.Repeat(" ", cw.gap) + prCell + strings.Repeat(" ", cw.gap) + starsCell + strings.Repeat(" ", cw.gap) + updCell
 	return padTo(line, width)
 }
 
-func styleCount(n int, hi lipgloss.Style, text string) string {
-	if n > 0 {
-		return hi.Render(text)
+func styleCount(n int, hi lipgloss.Style, text string, ready bool) string {
+	if !ready {
+		return styleMuted.Render(text)
 	}
-	return styleMuted.Render(text)
+	return hi.Render(text)
 }
 
 func renderChildRow(r row, selected bool, cw colWidths, width int, now time.Time) string {
@@ -2204,7 +2238,7 @@ func innerWidth(width int) int {
 	return w
 }
 
-func renderFrame(width, height int, titleLeft, titleRight, topOverlay string, pinned, body, foot []string) string {
+func renderFrame(width, height int, titleLeft, titleRight, topOverlay string, overlayAt int, pinned, body, foot []string) string {
 	if width < 24 {
 		width = 24
 	}
@@ -2214,7 +2248,7 @@ func renderFrame(width, height int, titleLeft, titleRight, topOverlay string, pi
 
 	lines := make([]string, 0, height)
 	if topOverlay != "" {
-		lines = append(lines, titledRuleWithOverlay(width, titleLeft, topOverlay))
+		lines = append(lines, titledRuleWithOverlay(width, titleLeft, topOverlay, overlayAt))
 	} else {
 		lines = append(lines, titledRule(width, "╭", "╮", titleLeft, titleRight))
 	}
@@ -2241,26 +2275,26 @@ func renderFrame(width, height int, titleLeft, titleRight, topOverlay string, pi
 	return strings.Join(lines, "\n")
 }
 
-func titledRuleWithOverlay(width int, left, overlay string) string {
+func titledRuleWithOverlay(width int, left, stats string, statsAt int) string {
 	if width < 24 {
 		width = 24
 	}
 	innerW := width - 2
-	bodyW := innerWidth(width)
-	overlay = padDashes(overlay, bodyW)
-
-	titleBit := styleBorder.Render("─") + " " + left + " "
-	titleW := lipgloss.Width(titleBit)
-	skip := titleW - 1
-	if skip < 0 {
-		skip = 0
+	gap := styleBorder.Render(" ")
+	leftBit := dashFill(1) + gap + left + gap
+	leftW := lipgloss.Width(leftBit)
+	// Body content is inset one cell more than the title inner (│ + space vs ╭).
+	start := statsAt + 1
+	if start < leftW {
+		start = leftW
 	}
-	inner := titleBit + dropDisplayPrefix(overlay, skip) + styleBorder.Render("─")
-	iw := lipgloss.Width(inner)
-	if iw < innerW {
-		inner += dashFill(innerW - iw)
-	} else if iw > innerW {
-		inner = truncate(inner, innerW)
+	fill := start - leftW
+	if fill < 0 {
+		fill = 0
+	}
+	inner := leftBit + dashFill(fill) + stats
+	if w := lipgloss.Width(inner); w < innerW {
+		inner += dashFill(innerW - w)
 	}
 	return styleBorder.Render("╭") + inner + styleBorder.Render("╮")
 }
@@ -2271,7 +2305,38 @@ func dropDisplayPrefix(s string, n int) string {
 	}
 	i := 0
 	skipped := 0
+	lastSGR := ""
 	for i < len(s) && skipped < n {
+		if s[i] == '\x1b' {
+			j := strings.IndexByte(s[i:], 'm')
+			if j < 0 {
+				break
+			}
+			lastSGR = s[i : i+j+1]
+			i += j + 1
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		skipped++
+	}
+	rest := s[i:]
+	if rest == "" || lastSGR == "" || lastSGR == "\x1b[0m" {
+		return rest
+	}
+	return lastSGR + rest
+}
+
+func clipDisplay(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	i := 0
+	kept := 0
+	for i < len(s) && kept < width {
 		if s[i] == '\x1b' {
 			j := strings.IndexByte(s[i:], 'm')
 			if j < 0 {
@@ -2282,17 +2347,17 @@ func dropDisplayPrefix(s string, n int) string {
 		}
 		_, size := utf8.DecodeRuneInString(s[i:])
 		i += size
-		skipped++
+		kept++
 	}
-	return s[i:]
+	return s[:i]
 }
 
 func titledRule(width int, lc, rc, left, right string) string {
 	inner := width - 2
-	leftBit := styleBorder.Render("─") + " " + left + " "
-	rightBit := styleBorder.Render("─")
+	leftBit := dashFill(1) + styleBorder.Render(" ") + left + styleBorder.Render(" ")
+	rightBit := dashFill(1)
 	if right != "" {
-		rightBit = " " + right + " " + styleBorder.Render("─")
+		rightBit = styleBorder.Render(" ") + right + styleBorder.Render(" ") + dashFill(1)
 	}
 	fill := inner - lipgloss.Width(leftBit) - lipgloss.Width(rightBit)
 	if fill < 1 {
