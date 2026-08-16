@@ -14,7 +14,7 @@ Use [semantic versioning](https://semver.org/). Bump patch for small fixes, mino
 
 ### 2. Sync the README with changes since the last release
 
-Diff the TUI and GitHub client against the previous release tag and update `README.md` if keys, filters, or install instructions changed:
+Diff the TUI and GitHub client against the previous release tag and update `README.md` if behavior or install instructions changed:
 
 ```sh
 git diff $(git describe --tags --abbrev=0) -- tui.go github.go main.go README.md
