@@ -35,4 +35,4 @@ go install github.com/astrostl/guh@latest
 | `?` | help |
 | `q` | quit |
 
-https://www.youtube.com/shorts/hj1N6vkOQDM
+[![guh](https://img.youtube.com/vi/hj1N6vkOQDM/hqdefault.jpg)](https://www.youtube.com/shorts/hj1N6vkOQDM)
