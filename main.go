@@ -46,7 +46,13 @@ func run() error {
 		return nil
 	}
 
+	demo := hasFlag(os.Args[1:], "demo")
+
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		if demo {
+			printPlain(demoReport(""))
+			return nil
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		report, err := loadReport(ctx, "")
@@ -57,7 +63,7 @@ func run() error {
 		return nil
 	}
 
-	p := tea.NewProgram(newModel(), tea.WithAltScreen())
+	p := tea.NewProgram(newModelWith(demo), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

@@ -17,6 +17,8 @@ Go:
 go install github.com/astrostl/guh@latest
 ```
 
+`guh --demo` (or `-demo`) loads fake repos, issues, orgs, and commits. No `gh` session. Handy for screenshots.
+
 | key | |
 | --- | --- |
 | `↑↓` `jk` | move |
@@ -32,3 +34,5 @@ go install github.com/astrostl/guh@latest
 | `/` | text filter |
 | `?` | help |
 | `q` | quit |
+
+https://www.youtube.com/shorts/hj1N6vkOQDM

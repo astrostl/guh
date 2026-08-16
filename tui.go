@@ -189,19 +189,30 @@ type model struct {
 	commitsLoading bool
 	commitsErr     error
 	commitCursor   int
+
+	demo bool
 }
 
 func newModel() model {
+	return newModelWith(false)
+}
+
+func newModelWith(demo bool) model {
+	now := time.Now()
+	if demo {
+		now = demoNow
+	}
 	return model{
 		loading:       true,
 		width:         80,
 		height:        24,
 		sortField:     SortUpdated,
 		expandedRepos: make(map[string]bool),
-		now:           time.Now(),
+		now:           now,
 		fetchID:       1,
 		awaitRepos:    true,
 		awaitActivity: true,
+		demo:          demo,
 	}
 }
 
@@ -217,6 +228,17 @@ func (m *model) armFetch() {
 func (m model) fetchCmd() tea.Cmd {
 	id := m.fetchID
 	owner := m.owner
+	if m.demo {
+		rep := demoReport(owner)
+		return tea.Batch(
+			func() tea.Msg {
+				return reposMsg{id: id, repos: rep.Repos}
+			},
+			func() tea.Msg {
+				return activityMsg{id: id, page: activityPage{Repos: rep.Repos, Issues: rep.Issues, PRs: rep.PRs}}
+			},
+		)
+	}
 	return tea.Batch(
 		func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -237,8 +259,11 @@ func fetchActivityCmd(id int, owner, after string) tea.Cmd {
 	}
 }
 
-func fetchCommitsCmd(repo string) tea.Cmd {
+func fetchCommitsCmd(repo string, demo bool) tea.Cmd {
 	return func() tea.Msg {
+		if demo {
+			return commitsMsg{repo: repo, commits: demoCommits(repo)}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		commits, err := fetchRecentCommits(ctx, execRunner, repo, 7)
@@ -249,8 +274,12 @@ func fetchCommitsCmd(repo string) tea.Cmd {
 	}
 }
 
-func fetchOrgsCmd() tea.Cmd {
+func fetchOrgsCmd(demo bool) tea.Cmd {
 	return func() tea.Msg {
+		if demo {
+			login, orgs := demoOwners()
+			return orgsMsg{login: login, orgs: orgs}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		login, orgs, err := fetchOwnerChoices(ctx, execRunner)
@@ -559,7 +588,7 @@ func (m model) openCommits() (tea.Model, tea.Cmd) {
 	m.commitsErr = nil
 	m.commitCursor = 0
 	m.commitsLoading = true
-	return m, fetchCommitsCmd(repo)
+	return m, fetchCommitsCmd(repo, m.demo)
 }
 
 func (m model) handleCommitsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -612,7 +641,7 @@ func (m model) openOrgPicker() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.orgsLoading = true
-	return m, fetchOrgsCmd()
+	return m, fetchOrgsCmd(m.demo)
 }
 
 func (m model) handleOrgPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -712,7 +741,9 @@ func (m *model) applyReport(repos, issues, prs []Item) {
 	m.report.Repos = repos
 	m.report.Issues = issues
 	m.report.PRs = prs
-	m.now = time.Now()
+	if !m.demo {
+		m.now = time.Now()
+	}
 	m.groups = buildGroups(m.report)
 	m.rebuildRows()
 	m.cursor = firstSelectable(m.rows, 0)
@@ -800,7 +831,7 @@ func (m *model) openSelected() tea.Cmd {
 }
 
 func (m *model) openInBrowser(url string) tea.Cmd {
-	if url == "" {
+	if url == "" || m.demo {
 		return nil
 	}
 	m.statusID++

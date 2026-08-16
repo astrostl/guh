@@ -10,6 +10,8 @@ func TestHasFlag(t *testing.T) {
 	}{
 		{[]string{"--version"}, "version", true},
 		{[]string{"-version"}, "version", true},
+		{[]string{"--demo"}, "demo", true},
+		{[]string{"-demo"}, "demo", true},
 		{[]string{"--help"}, "help", true},
 		{[]string{"-help"}, "help", true},
 		{[]string{"--version"}, "help", false},
