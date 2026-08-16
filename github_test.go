@@ -264,6 +264,68 @@ func TestLoadReportWithOwner(t *testing.T) {
 	}
 }
 
+func TestLoadReportWithFetchesCountsInParallel(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.HasPrefix(joined, "repo list"):
+			return []byte(`[{"nameWithOwner":"acme/widgets","url":"https://github.com/acme/widgets","updatedAt":"2026-01-01T00:00:00Z"}]`), nil
+		case strings.Contains(joined, "owner="):
+			return []byte(`{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false},"nodes":[]},"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}`), nil
+		case strings.Contains(joined, "history"):
+			started <- "commits"
+			<-release
+			return []byte(`{"data":{"r0":{"defaultBranchRef":{"target":{"history":{"totalCount":7}}}}}}`), nil
+		case strings.Contains(joined, "o0="):
+			started <- "issues"
+			<-release
+			return []byte(`{"data":{"r0":{"issues":{"totalCount":3},"pullRequests":{"totalCount":1}}}}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected args %q", joined)
+		}
+	}
+
+	done := make(chan Report, 1)
+	errc := make(chan error, 1)
+	go func() {
+		rep, err := loadReportWith(context.Background(), run, "acme")
+		if err != nil {
+			errc <- err
+			return
+		}
+		done <- rep
+	}()
+
+	got := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		select {
+		case kind := <-started:
+			got[kind] = true
+		case err := <-errc:
+			t.Fatal(err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("count fetches did not overlap")
+		}
+	}
+	close(release)
+
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case rep := <-done:
+		if rep.Repos[0].IssueCount != 3 || rep.Repos[0].PRCount != 1 || rep.Repos[0].CommitCount != 7 {
+			t.Fatalf("repos = %+v", rep.Repos[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("loadReportWith did not finish")
+	}
+	if !got["issues"] || !got["commits"] {
+		t.Fatalf("started = %v", got)
+	}
+}
+
 func TestFetchRepoCountBatch(t *testing.T) {
 	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
 		joined := strings.Join(args, " ")

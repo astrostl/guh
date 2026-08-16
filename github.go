@@ -207,15 +207,28 @@ func loadReportWith(ctx context.Context, run runner, owner string) (Report, erro
 	if err != nil {
 		return Report{}, err
 	}
-	counted, err := fetchRepoCounts(ctx, run, repos)
-	if err != nil {
-		return Report{}, err
+	var (
+		wg                  sync.WaitGroup
+		counted, commits    []Item
+		countErr, commitErr error
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		counted, countErr = fetchRepoCounts(ctx, run, repos)
+	}()
+	go func() {
+		defer wg.Done()
+		commits, commitErr = fetchRepoCommitCounts(ctx, run, repos)
+	}()
+	wg.Wait()
+	if countErr != nil {
+		return Report{}, countErr
+	}
+	if commitErr != nil {
+		return Report{}, commitErr
 	}
 	repos = applyIssuePRCounts(repos, counted)
-	commits, err := fetchRepoCommitCounts(ctx, run, repos)
-	if err != nil {
-		return Report{}, err
-	}
 	repos = applyCommitCounts(repos, commits)
 	issues, prs, err := fetchReportItems(ctx, run, repos)
 	if err != nil {
@@ -263,10 +276,13 @@ type activityPage struct {
 }
 
 const (
+	// Issue/PR totalCount is cheap; commit history totalCount is slower per
+	// repo, so those batches stay smaller. Both query types cost 1 GraphQL
+	// point even at these sizes. The TUI runs the two waves at once.
 	countBatchSize  = 50
-	countWorkers    = 4
-	commitBatchSize = 8
-	commitWorkers   = 3
+	countWorkers    = 6
+	commitBatchSize = 25
+	commitWorkers   = 6
 
 	gqlRepoIssues = `query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {

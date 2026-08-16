@@ -785,6 +785,72 @@ func TestURLPromptOwnerRepo(t *testing.T) {
 	}
 }
 
+func TestReposMsgStartsIssueAndCommitWaves(t *testing.T) {
+	m := newModel()
+	m.loading = true
+	updated, cmd := m.Update(reposMsg{
+		id: m.fetchID,
+		repos: []Item{
+			{Kind: KindRepo, Repo: "acme/one"},
+			{Kind: KindRepo, Repo: "acme/two"},
+		},
+	})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected count-fill commands")
+	}
+	if m.countInflight == 0 {
+		t.Fatal("expected issue/PR count wave to start")
+	}
+	if m.commitInflight == 0 {
+		t.Fatal("expected commit count wave to start in parallel")
+	}
+	if m.issuesReady() {
+		t.Fatal("issues should stay muted until their wave finishes")
+	}
+	if m.commitsReady() {
+		t.Fatal("commits should stay muted until their wave finishes")
+	}
+
+	updated, _ = m.Update(countsMsg{
+		id:   m.fetchID,
+		kind: countIssuesPRs,
+		repos: []Item{
+			{Repo: "acme/one", IssueCount: 2, PRCount: 1},
+			{Repo: "acme/two", IssueCount: 0, PRCount: 0},
+		},
+	})
+	m = updated.(model)
+	if !m.issuesReady() {
+		t.Fatal("issues should unmute when their wave is done")
+	}
+	if m.commitsReady() {
+		t.Fatal("commits should stay muted while still in flight")
+	}
+	if m.countInflight != 0 {
+		t.Fatalf("issue inflight = %d, want 0", m.countInflight)
+	}
+	if m.commitInflight == 0 {
+		t.Fatal("commit wave should keep running after issues finish")
+	}
+
+	updated, _ = m.Update(countsMsg{
+		id:   m.fetchID,
+		kind: countCommits,
+		repos: []Item{
+			{Repo: "acme/one", CommitCount: 9},
+			{Repo: "acme/two", CommitCount: 4},
+		},
+	})
+	m = updated.(model)
+	if !m.commitsReady() {
+		t.Fatal("commits should unmute when their wave is done")
+	}
+	if m.report.Repos[0].CommitCount != 9 || m.report.Repos[0].IssueCount != 2 {
+		t.Fatalf("merged counts = %+v", m.report.Repos[0])
+	}
+}
+
 func TestUnfoldFetchesRepoItems(t *testing.T) {
 	m := newModel()
 	m.loading = false

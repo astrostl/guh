@@ -211,6 +211,7 @@ type model struct {
 	fetchID        int
 	awaitRepos     bool
 	awaitActivity  bool
+	awaitCommits   bool
 	counts         []Item
 	loadedRepos    map[string]bool
 	loadingRepos   map[string]bool
@@ -253,6 +254,7 @@ func newModelWith(demo bool) model {
 		fetchID:       1,
 		awaitRepos:    true,
 		awaitActivity: true,
+		awaitCommits:  true,
 		loadedRepos:   make(map[string]bool),
 		loadingRepos:  make(map[string]bool),
 		demo:          demo,
@@ -263,6 +265,7 @@ func (m *model) armFetch() {
 	m.fetchID++
 	m.awaitRepos = true
 	m.awaitActivity = true
+	m.awaitCommits = true
 	m.counts = nil
 	m.report.Issues = nil
 	m.report.PRs = nil
@@ -295,6 +298,21 @@ func (m model) fetchCmd() tea.Cmd {
 		repos, err := fetchRepos(ctx, execRunner, owner)
 		return reposMsg{id: id, repos: repos, err: err}
 	}
+}
+
+func (m *model) startCountFill() tea.Cmd {
+	m.countQueue = batchOffsets(len(m.report.Repos), countBatchSize)
+	m.countInflight = 0
+	m.commitRepos = m.commitTargets()
+	m.commitQueue = batchOffsets(len(m.commitRepos), commitBatchSize)
+	m.commitInflight = 0
+	if len(m.countQueue) == 0 {
+		m.awaitActivity = false
+	}
+	if len(m.commitQueue) == 0 {
+		m.awaitCommits = false
+	}
+	return tea.Batch(m.startCountWave(countIssuesPRs), m.startCountWave(countCommits))
 }
 
 func (m *model) startCountWave(kind countKind) tea.Cmd {
@@ -439,9 +457,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.awaitActivity = true
-		m.countQueue = batchOffsets(len(m.report.Repos), countBatchSize)
-		m.countInflight = 0
-		return m, m.startCountWave(countIssuesPRs)
+		m.awaitCommits = true
+		return m, m.startCountFill()
 
 	case activityMsg:
 		if msg.id != m.fetchID {
@@ -463,11 +480,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.kind == countCommits {
 			m.commitInflight--
 			if msg.err != nil {
+				m.awaitCommits = false
 				m.setStatus("commits: " + msg.err.Error())
-			} else {
-				m.applyReport(applyCommitCounts(m.report.Repos, msg.repos), m.report.Issues, m.report.PRs)
+				return m, m.startCountWave(countCommits)
 			}
-			return m, m.startCountWave(countCommits)
+			m.applyReport(applyCommitCounts(m.report.Repos, msg.repos), m.report.Issues, m.report.PRs)
+			if cmd := m.startCountWave(countCommits); cmd != nil {
+				return m, cmd
+			}
+			if m.commitInflight == 0 {
+				m.awaitCommits = false
+			}
+			return m, nil
 		}
 		m.countInflight--
 		if msg.err != nil {
@@ -483,10 +507,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.awaitActivity = false
-		m.commitRepos = m.commitTargets()
-		m.commitQueue = batchOffsets(len(m.commitRepos), commitBatchSize)
-		m.commitInflight = 0
-		return m, tea.Batch(m.nextRepoItemsCmd(), m.startCountWave(countCommits))
+		return m, m.nextRepoItemsCmd()
 
 	case repoItemsMsg:
 		if msg.id != m.fetchID {
@@ -1498,9 +1519,11 @@ func (m model) View() string {
 		} else {
 			titleRight = styleMuted.Render("fetching github activity…")
 		}
+	} else if m.awaitActivity && m.awaitCommits {
+		titleRight = styleMuted.Render("loading counts…")
 	} else if m.awaitActivity {
 		titleRight = styleMuted.Render("loading issue & PR counts…")
-	} else if m.commitInflight > 0 || len(m.commitQueue) > 0 {
+	} else if m.awaitCommits {
 		titleRight = styleMuted.Render("loading commit counts…")
 	}
 
@@ -1851,7 +1874,7 @@ func (m model) issuesReady() bool {
 }
 
 func (m model) commitsReady() bool {
-	return m.issuesReady() && m.commitInflight == 0 && len(m.commitQueue) == 0
+	return m.demo || (!m.loading && !m.awaitCommits)
 }
 
 func repoPrefix(r row, selected bool) string {
