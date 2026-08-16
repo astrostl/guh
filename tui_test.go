@@ -223,6 +223,22 @@ func TestSorting(t *testing.T) {
 	if m.sortField != SortUpdated {
 		t.Fatalf("expected cycle back to SortUpdated, got %s", m.sortField)
 	}
+
+	// Prev: walks left from Update to Stars, then Name
+	m.sortField = m.sortField.Prev()
+	if m.sortField != SortStars {
+		t.Fatalf("expected SortStars prev from Update, got %s", m.sortField)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	m = updated.(model)
+	if m.sortField != SortPRs {
+		t.Fatalf("S should move sort left to PRs, got %s", m.sortField)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if m.sortField != SortStars {
+		t.Fatalf("s should move sort right to Stars, got %s", m.sortField)
+	}
 }
 
 func TestFiltering(t *testing.T) {

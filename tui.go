@@ -69,6 +69,8 @@ const (
 	SortIssues
 	SortPRs
 	SortStars
+
+	sortFieldCount
 )
 
 func (s SortField) String() string {
@@ -91,7 +93,11 @@ func (s SortField) String() string {
 }
 
 func (s SortField) Next() SortField {
-	return (s + 1) % 6
+	return (s + 1) % sortFieldCount
+}
+
+func (s SortField) Prev() SortField {
+	return (s + sortFieldCount - 1) % sortFieldCount
 }
 
 type repoGroup struct {
@@ -702,6 +708,12 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		m.sortField = m.sortField.Next()
+		m.rebuildRows()
+		m.ensureVisible()
+		m.setStatus(fmt.Sprintf("Sorted by %s", m.sortField))
+
+	case "S":
+		m.sortField = m.sortField.Prev()
 		m.rebuildRows()
 		m.ensureVisible()
 		m.setStatus(fmt.Sprintf("Sorted by %s", m.sortField))
@@ -1585,7 +1597,7 @@ func (m model) View() string {
 
 	// Keybind hints footer
 	foldHint := "←→ un/fold · lh un/fold all"
-	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s sort · / filter · ? help · q quit"))
+	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s/S sort · / filter · ? help · q quit"))
 
 	titleLeft := styleTitle.Render("guh")
 	who := m.owner
@@ -2072,7 +2084,7 @@ func (m model) renderHelpModal() string {
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("P"), "Toggle private repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("f"), "Toggle non-forks only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("F"), "Toggle forks only"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("s"), "Cycle sort (Update, Name, Commits, Issues, PRs, Stars)"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("s / S"), "Cycle sort right / left (Update, Name, Commits, Issues, PRs, Stars)"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("/"), "Search & filter repos / issues / PRs"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Esc"), "Clear search filter / close org picker"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("r"), "Refresh data from GitHub"),

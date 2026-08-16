@@ -2,7 +2,7 @@
 
 A terminal UI for the GitHub repos your `gh` session can see. Yours or an org: commits, open issues and PRs, stars, last update. Fold a repo to read what's open, flip through recent commits, jump to a user, org, or repo.
 
-![guh](guh.gif?v=0.6.0)
+![guh](guh.gif?v=0.6.1)
 
 Needs an authenticated [GitHub CLI](https://cli.github.com/). Run it in a terminal for the UI. Pipe or redirect and you get a plain table.
 
