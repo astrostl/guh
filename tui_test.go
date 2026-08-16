@@ -677,6 +677,113 @@ func TestOrgPickerSelectAndEscape(t *testing.T) {
 	}
 }
 
+func TestURLPrompt(t *testing.T) {
+	m := newModel()
+	m.loading = false
+	m.report = sampleReport()
+	m.groups = buildGroups(m.report)
+	m.rebuildRows()
+	m.height = 24
+	m.width = 80
+	m.login = "astrostl"
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = updated.(model)
+	if !m.urlMode || cmd != nil {
+		t.Fatalf("expected url prompt, mode=%v cmd=%v", m.urlMode, cmd)
+	}
+	if m.urlText != "astrostl" {
+		t.Fatalf("prefill = %q", m.urlText)
+	}
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "User/org/repo:") {
+		t.Fatalf("missing URL prompt:\n%s", view)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(model)
+	for _, r := range "https://github.com/acme/widgets" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(model)
+	}
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.urlMode {
+		t.Fatal("expected prompt to close")
+	}
+	if m.owner != "acme" {
+		t.Fatalf("owner = %q, want acme", m.owner)
+	}
+	if m.pendingRepo != "acme/widgets" {
+		t.Fatalf("pendingRepo = %q", m.pendingRepo)
+	}
+	if !m.loading || cmd == nil {
+		t.Fatal("expected fetch after URL")
+	}
+
+	m = newModel()
+	m.loading = false
+	m.login = "astrostl"
+	m.owner = "acme"
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.urlMode {
+		t.Fatal("esc should cancel")
+	}
+	if m.owner != "acme" {
+		t.Fatalf("esc changed owner to %q", m.owner)
+	}
+}
+
+func TestURLPromptOwnerRepo(t *testing.T) {
+	m := newModel()
+	m.loading = false
+	m.login = "astrostl"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(model)
+	for _, r := range "acme/widgets" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(model)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.owner != "acme" || m.pendingRepo != "acme/widgets" {
+		t.Fatalf("owner=%q pending=%q", m.owner, m.pendingRepo)
+	}
+	if !m.loading || cmd == nil {
+		t.Fatal("expected fetch for owner/repo")
+	}
+}
+
+func TestShiftUResetsToYou(t *testing.T) {
+	m := newModel()
+	m.loading = false
+	m.login = "astrostl"
+	m.owner = "acme"
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'U'}})
+	m = updated.(model)
+	if m.owner != "" {
+		t.Fatalf("owner = %q, want personal", m.owner)
+	}
+	if !m.loading || cmd == nil {
+		t.Fatal("expected fetch for personal account")
+	}
+
+	m.loading = false
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'U'}})
+	m = updated.(model)
+	if m.owner != "" {
+		t.Fatalf("owner changed to %q", m.owner)
+	}
+	if cmd != nil {
+		t.Fatal("expected no fetch when already you")
+	}
+}
+
 func TestCommitsModal(t *testing.T) {
 	m := newModel()
 	m.loading = false

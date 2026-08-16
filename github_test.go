@@ -248,7 +248,7 @@ func TestLoadReportWithOwner(t *testing.T) {
 		seen = append(seen, joined)
 		mu.Unlock()
 		if strings.HasPrefix(joined, "api graphql") {
-			return []byte(`{"data":{"organization":{"repositories":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}`), nil
+			return []byte(`{"data":{"repositoryOwner":{"repositories":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}`), nil
 		}
 		return []byte("[]"), nil
 	}
@@ -271,7 +271,7 @@ func TestActivityPageUsesRepoTotals(t *testing.T) {
 		}
 		return []byte(`{
 			"data": {
-				"organization": {
+				"repositoryOwner": {
 					"repositories": {
 						"pageInfo": {"hasNextPage": false, "endCursor": "c1"},
 						"nodes": [{
@@ -363,5 +363,37 @@ func TestParseTime(t *testing.T) {
 	}
 	if !parseTime("").IsZero() || !parseTime("nope").IsZero() {
 		t.Fatal("expected zero time for invalid input")
+	}
+}
+
+func TestParseOwnerInput(t *testing.T) {
+	cases := []struct {
+		in, owner, repo string
+		ok              bool
+	}{
+		{"acme", "acme", "", true},
+		{"  Acme  ", "Acme", "", true},
+		{"acme/widgets", "acme", "acme/widgets", true},
+		{"astrostl/guh", "astrostl", "astrostl/guh", true},
+		{"https://github.com/acme", "acme", "", true},
+		{"https://github.com/acme/widgets", "acme", "acme/widgets", true},
+		{"https://github.com/acme/widgets/issues/12", "acme", "acme/widgets", true},
+		{"github.com/acme/widgets", "acme", "acme/widgets", true},
+		{"https://www.github.com/acme", "acme", "", true},
+		{"https://gitlab.com/acme", "", "", false},
+		{"", "", "", false},
+		{"not a login", "", "", false},
+	}
+	for _, tc := range cases {
+		owner, repo, err := parseOwnerInput(tc.in)
+		if tc.ok {
+			if err != nil || owner != tc.owner || repo != tc.repo {
+				t.Fatalf("parseOwnerInput(%q) = %q %q %v, want %q %q", tc.in, owner, repo, err, tc.owner, tc.repo)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("parseOwnerInput(%q) = %q %q, want error", tc.in, owner, repo)
+		}
 	}
 }

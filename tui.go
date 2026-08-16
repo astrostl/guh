@@ -163,6 +163,9 @@ type model struct {
 	sortField     SortField
 	filterMode    bool
 	filterText    string
+	urlMode       bool
+	urlText       string
+	pendingRepo   string
 	showHelp      bool
 	now           time.Time
 	onlyPrivate   bool
@@ -390,6 +393,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.urlMode {
+			return m.handleURLKey(msg)
+		}
 		if m.filterMode {
 			return m.handleFilterKey(msg)
 		}
@@ -429,6 +435,44 @@ func (m model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m model) handleURLKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.urlMode = false
+		m.urlText = ""
+		return m, nil
+	case tea.KeyEnter:
+		return m.submitURL()
+	case tea.KeyBackspace:
+		if len(m.urlText) > 0 {
+			m.urlText = m.urlText[:len(m.urlText)-1]
+		}
+		return m, nil
+	case tea.KeyRunes:
+		m.urlText += string(msg.Runes)
+		return m, nil
+	case tea.KeyCtrlU:
+		m.urlText = ""
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m model) submitURL() (tea.Model, tea.Cmd) {
+	raw := strings.TrimSpace(m.urlText)
+	m.urlMode = false
+	m.urlText = ""
+	if raw == "" {
+		return m, nil
+	}
+	owner, repo, err := parseOwnerInput(raw)
+	if err != nil {
+		m.setStatus(err.Error())
+		return m, nil
+	}
+	return m.applyOwner(owner, repo)
 }
 
 func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -573,6 +617,19 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "o":
 		return m.openOrgPicker()
+
+	case "u":
+		return m.openURLPrompt()
+
+	case "U", "shift+u":
+		if m.owner == "" {
+			m.setStatus("Your repos")
+			return m, nil
+		}
+		next, cmd := m.applyOwner("", "")
+		n := next.(model)
+		n.setStatus("Your repos")
+		return n, cmd
 
 	case "c":
 		return m.openCommits()
@@ -722,10 +779,32 @@ func (m model) selectOwner() (tea.Model, tea.Cmd) {
 		newOwner = ""
 	}
 	m.showOrgs = false
-	if newOwner == m.owner {
+	return m.applyOwner(newOwner, "")
+}
+
+func (m model) openURLPrompt() (tea.Model, tea.Cmd) {
+	m.urlMode = true
+	m.urlText = m.owner
+	if m.urlText == "" {
+		m.urlText = m.login
+	}
+	return m, nil
+}
+
+func (m model) applyOwner(owner, focusRepo string) (tea.Model, tea.Cmd) {
+	if m.login != "" && strings.EqualFold(owner, m.login) {
+		owner = ""
+	}
+	if owner == m.owner {
+		if focusRepo != "" {
+			m.pendingRepo = focusRepo
+			m.cursorToRepo(focusRepo)
+			m.ensureVisible()
+		}
 		return m, nil
 	}
-	m.owner = newOwner
+	m.owner = owner
+	m.pendingRepo = focusRepo
 	m.loading = true
 	m.err = nil
 	m.status = ""
@@ -752,7 +831,14 @@ func (m *model) applyReport(repos, issues, prs []Item) {
 	m.groups = buildGroups(m.report)
 	m.rebuildRows()
 	m.cursor = firstSelectable(m.rows, 0)
-	if prevURL != "" {
+	if m.pendingRepo != "" {
+		m.cursorToRepo(m.pendingRepo)
+		m.ensureExpandedMap()
+		m.expandedRepos[m.pendingRepo] = true
+		m.rebuildRows()
+		m.cursorToRepo(m.pendingRepo)
+		m.pendingRepo = ""
+	} else if prevURL != "" {
 		for i, r := range m.rows {
 			if r.selectable() && r.item.URL == prevURL {
 				m.cursor = i
@@ -789,7 +875,7 @@ func (m *model) ensureExpandedMap() {
 
 func (m *model) cursorToRepo(repo string) {
 	for i, r := range m.rows {
-		if r.typ == rowRepo && r.item.Repo == repo {
+		if r.typ == rowRepo && strings.EqualFold(r.item.Repo, repo) {
 			m.cursor = i
 			return
 		}
@@ -888,7 +974,7 @@ func (m *model) pageSize() int {
 }
 
 func (m model) footerExtra() int {
-	if m.err != nil || m.status != "" || m.filterMode || m.filterText != "" {
+	if m.err != nil || m.status != "" || m.filterMode || m.filterText != "" || m.urlMode {
 		return 1
 	}
 	return 0
@@ -1200,7 +1286,9 @@ func (m model) View() string {
 	var foot []string
 
 	// Filter or Status line
-	if m.filterMode {
+	if m.urlMode {
+		foot = append(foot, styleSearch.Render(fmt.Sprintf(" User/org/repo: %s_", m.urlText))+" "+styleMuted.Render("[Enter] go · [Esc] cancel"))
+	} else if m.filterMode {
 		foot = append(foot, styleSearch.Render(fmt.Sprintf(" 🔍 Filter: %s_", m.filterText))+" "+styleMuted.Render("[Enter] keep · [Esc] clear"))
 	} else if m.filterText != "" {
 		foot = append(foot, styleSearch.Render(fmt.Sprintf(" 🔍 Filter: %s", m.filterText))+" "+styleMuted.Render(fmt.Sprintf("(%d rows) · [Esc] clear", len(m.rows))))
@@ -1219,7 +1307,7 @@ func (m model) View() string {
 
 	// Keybind hints footer
 	foldHint := "←→ un/fold · lh un/fold all"
-	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · c commits · o orgs · a all · p/P pub · f/F src · s sort · / filter · ? help · q quit"))
+	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s sort · / filter · ? help · q quit"))
 
 	titleLeft := styleTitle.Render("guh")
 	if m.owner != "" {
@@ -1649,6 +1737,8 @@ func (m model) renderHelpModal() string {
 		"",
 		styleHeaderSort.Render("View & Tools:"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("o"), "Switch organization"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("u"), "Open a user, org, repo, or GitHub URL"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("U"), "Reset to your account"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("a"), "Show all repos"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("p"), "Toggle public repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("P"), "Toggle private repos only"),

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"sort"
 	"strings"
@@ -256,9 +257,9 @@ type activityPage struct {
 }
 
 const (
-	gqlOrgActivity = `query($login: String!, $after: String) {
-  organization(login: $login) {
-    repositories(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+	gqlOwnerActivity = `query($login: String!, $after: String) {
+  repositoryOwner(login: $login) {
+    repositories(first: 50, after: $after, ownerAffiliations: OWNER, orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
         nameWithOwner
@@ -327,9 +328,9 @@ type gqlRepoConn struct {
 
 type gqlActivityResp struct {
 	Data struct {
-		Organization *struct {
+		RepositoryOwner *struct {
 			Repositories gqlRepoConn `json:"repositories"`
-		} `json:"organization"`
+		} `json:"repositoryOwner"`
 		Viewer *struct {
 			Repositories gqlRepoConn `json:"repositories"`
 		} `json:"viewer"`
@@ -397,7 +398,7 @@ func fetchAllActivity(ctx context.Context, run runner, owner string) (counted, i
 func fetchActivityPage(ctx context.Context, run runner, owner, after string) (activityPage, error) {
 	args := []string{"api", "graphql"}
 	if owner != "" {
-		args = append(args, "-f", "query="+gqlOrgActivity, "-f", "login="+owner)
+		args = append(args, "-f", "query="+gqlOwnerActivity, "-f", "login="+owner)
 	} else {
 		args = append(args, "-f", "query="+gqlViewerActivity)
 	}
@@ -418,8 +419,8 @@ func fetchActivityPage(ctx context.Context, run runner, owner, after string) (ac
 
 	var conn gqlRepoConn
 	switch {
-	case owner != "" && raw.Data.Organization != nil:
-		conn = raw.Data.Organization.Repositories
+	case owner != "" && raw.Data.RepositoryOwner != nil:
+		conn = raw.Data.RepositoryOwner.Repositories
 	case owner == "" && raw.Data.Viewer != nil:
 		conn = raw.Data.Viewer.Repositories
 	default:
@@ -564,4 +565,66 @@ func parseTime(s string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// parseOwnerInput accepts a username, org, owner/repo, or GitHub URL.
+// repo is "owner/name" when the input points at a repository.
+func parseOwnerInput(raw string) (owner, repo string, err error) {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, `"'`)
+	if s == "" {
+		return "", "", fmt.Errorf("empty")
+	}
+
+	lower := strings.ToLower(s)
+	if strings.Contains(lower, "github.com") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		if !strings.Contains(lower, "://") {
+			s = "https://" + s
+			lower = strings.ToLower(s)
+		}
+		u, perr := url.Parse(s)
+		if perr != nil || u.Host == "" {
+			return "", "", fmt.Errorf("not a GitHub URL")
+		}
+		host := strings.ToLower(u.Hostname())
+		if host != "github.com" && host != "www.github.com" {
+			return "", "", fmt.Errorf("not a GitHub URL")
+		}
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			return "", "", fmt.Errorf("no user or org in URL")
+		}
+		owner = parts[0]
+		if len(parts) >= 2 && parts[1] != "" && !isGitHubReservedPath(parts[1]) {
+			repo = owner + "/" + parts[1]
+		}
+		return owner, repo, nil
+	}
+
+	if strings.ContainsAny(s, " \t") {
+		return "", "", fmt.Errorf("not a user, org, or URL")
+	}
+	if i := strings.IndexByte(s, '/'); i > 0 {
+		owner = s[:i]
+		rest := strings.Trim(s[i+1:], "/")
+		if rest != "" {
+			if j := strings.IndexByte(rest, '/'); j >= 0 {
+				rest = rest[:j]
+			}
+			if rest != "" {
+				repo = owner + "/" + rest
+			}
+		}
+		return owner, repo, nil
+	}
+	return s, "", nil
+}
+
+func isGitHubReservedPath(p string) bool {
+	switch strings.ToLower(p) {
+	case "orgs", "users", "settings", "login", "signup", "topics", "explore", "marketplace", "sponsors", "notifications", "issues", "pulls":
+		return true
+	default:
+		return false
+	}
 }

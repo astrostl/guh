@@ -1,6 +1,6 @@
 # guh
 
-A terminal UI for the GitHub repos your `gh` session can see. Yours or an org: open issues and PRs, stars, last update. Fold a repo to read what's open, flip through recent commits, switch orgs without leaving the list.
+A terminal UI for the GitHub repos your `gh` session can see. Yours or an org: open issues and PRs, stars, last update. Fold a repo to read what's open, flip through recent commits, jump to a user, org, or repo.
 
 ![guh](guh.gif)
 
