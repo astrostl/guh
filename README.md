@@ -4,12 +4,18 @@ Repos for the logged-in `gh` user (or an org), with open issues, PRs, stars, and
 
 Needs [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`). A TTY gets the interactive view; anything else dumps a table.
 
+Homebrew (macOS):
+
 ```sh
 brew tap astrostl/guh https://github.com/astrostl/guh
 brew install guh
 ```
 
-From source: `make build && ./guh`
+Go:
+
+```sh
+go install github.com/astrostl/guh@latest
+```
 
 | key | |
 | --- | --- |

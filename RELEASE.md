@@ -29,11 +29,11 @@ Confirm the version stamp and that the test suite still passes.
 ```sh
 make test
 make build VERSION=v1.2.3
-./guh -version
+./guh --version
 # expect: guh v1.2.3
 ```
 
-Do not proceed if `-version` prints `dev` or a dirty git describe — the ldflags did not stamp.
+Do not proceed if `--version` prints `dev` or a dirty git describe — the ldflags did not stamp.
 
 ### 4. Run the release target
 
@@ -76,7 +76,7 @@ gh release create v1.2.3 \
 ```sh
 brew update
 brew upgrade guh
-guh -version
+guh --version
 ```
 
 If testing from scratch:
@@ -84,7 +84,7 @@ If testing from scratch:
 ```sh
 brew tap astrostl/guh https://github.com/astrostl/guh
 brew install guh
-guh -version
+guh --version
 ```
 
 ## What the Makefile targets do

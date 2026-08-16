@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -31,10 +30,18 @@ func main() {
 	}
 }
 
+func hasFlag(args []string, name string) bool {
+	one, two := "-"+name, "--"+name
+	for _, a := range args {
+		if a == one || a == two {
+			return true
+		}
+	}
+	return false
+}
+
 func run() error {
-	showVer := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
-	if *showVer {
+	if hasFlag(os.Args[1:], "version") {
 		fmt.Printf("guh %s\n", version)
 		return nil
 	}

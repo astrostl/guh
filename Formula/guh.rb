@@ -22,6 +22,6 @@ class Guh < Formula
   end
 
   test do
-    system bin/"guh", "-version"
+    system bin/"guh", "--version"
   end
 end
