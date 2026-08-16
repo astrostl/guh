@@ -72,7 +72,7 @@ func run() error {
 func printPlain(report Report) {
 	now := time.Now()
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "TYPE\tREPOSITORY\tISSUES\tPRS\tSTARS\tUPDATE\tURL")
+	fmt.Fprintln(w, "TYPE\tREPOSITORY\tCOMMITS\tISSUES\tPRS\tSTARS\tUPDATE\tURL")
 
 	issueCounts := make(map[string]int)
 	prCounts := make(map[string]int)
@@ -85,9 +85,10 @@ func printPlain(report Report) {
 
 	for _, repo := range report.Repos {
 		updStr := formatDaysOffset(repo.UpdatedAt, now)
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
 			repo.TypeEmoji(),
 			repo.Repo,
+			repo.CommitCount,
 			issueCounts[repo.Repo],
 			prCounts[repo.Repo],
 			repo.Stars,

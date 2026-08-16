@@ -39,7 +39,7 @@ func demoReport(owner string) Report {
 
 func demoPersonal() Report {
 	return assemble(
-		dRepo("mira/cartograph", 0, 3, 12, false, false, false, "Go", "Offline maps from OSM extracts",
+		dRepo("mira/cartograph", 0, 3, 12, 412, false, false, false, "Go", "Offline maps from OSM extracts",
 			[]Item{
 				dIssue("mira/cartograph", 12, "Render tiles at 2x without blur", "priya", 0, 5),
 				dIssue("mira/cartograph", 9, "Missing contour labels above 60N", "jules", 1, 2),
@@ -49,13 +49,13 @@ func demoPersonal() Report {
 				dPR("mira/cartograph", 15, "Cache DEM tiles on disk", "jules", 0, 2),
 			},
 		),
-		dRepo("mira/letters", 0, 18, 0, true, false, false, "Swift", "A small letterpress tracker",
+		dRepo("mira/letters", 0, 18, 0, 28, true, false, false, "Swift", "A small letterpress tracker",
 			[]Item{
 				dIssue("mira/letters", 4, "Press hours wrap past midnight", "mira", 0, 20),
 			},
 			nil,
 		),
-		dRepo("mira/lumen", 1, 4, 184, false, false, false, "TypeScript", "Small notes, local-first",
+		dRepo("mira/lumen", 1, 4, 184, 1904, false, false, false, "TypeScript", "Small notes, local-first",
 			[]Item{
 				dIssue("mira/lumen", 41, "Remember last opened note on launch", "priya", 0, 8),
 				dIssue("mira/lumen", 38, "Sync conflict when two devices edit offline", "jules", 1, 6),
@@ -67,10 +67,10 @@ func demoPersonal() Report {
 				dPR("mira/lumen", 42, "Collapse empty notebooks in sidebar", "mira", 1, 2),
 			},
 		),
-		dRepo("mira/timecard", 1, 9, 2, true, false, false, "Go", "Hours, nothing else",
+		dRepo("mira/timecard", 1, 9, 2, 64, true, false, false, "Go", "Hours, nothing else",
 			nil, nil,
 		),
-		dRepo("mira/weather-radar", 3, 2, 41, false, false, false, "Rust", "NEXRAD overlays for a paper map",
+		dRepo("mira/weather-radar", 3, 2, 41, 287, false, false, false, "Rust", "NEXRAD overlays for a paper map",
 			[]Item{
 				dIssue("mira/weather-radar", 18, "Loop stutters after 50 frames", "owen", 2, 8),
 				dIssue("mira/weather-radar", 14, "Color scale unreadable at night", "mira", 3, 1),
@@ -79,35 +79,35 @@ func demoPersonal() Report {
 				dPR("mira/weather-radar", 21, "Decode Level III without the SDK", "kate", 1, 5),
 			},
 		),
-		dRepo("mira/workshop", 4, 6, 8, false, false, false, "Go", "One-off tools that earned a home",
+		dRepo("mira/workshop", 4, 6, 8, 119, false, false, false, "Go", "One-off tools that earned a home",
 			nil,
 			[]Item{
 				dPR("mira/workshop", 6, "Add a csv-to-sqlite helper", "nico", 3, 4),
 				dPR("mira/workshop", 5, "Quiet the JSON pretty-printer", "mira", 4, 7),
 			},
 		),
-		dRepo("mira/dotfiles", 5, 1, 6, false, false, false, "Shell", "",
+		dRepo("mira/dotfiles", 5, 1, 6, 833, false, false, false, "Shell", "",
 			nil, nil,
 		),
-		dRepo("mira/inkwell", 6, 11, 22, false, false, false, "Python", "A pen plotter driver that stays out of the way",
+		dRepo("mira/inkwell", 6, 11, 22, 156, false, false, false, "Python", "A pen plotter driver that stays out of the way",
 			[]Item{
 				dIssue("mira/inkwell", 11, "Hatch fill overshoots on closed paths", "priya", 5, 2),
 			},
 			nil,
 		),
-		dRepo("mira/sketchbook", 8, 0, 3, false, true, false, "TypeScript", "Fork of atelier/sketchbook",
+		dRepo("mira/sketchbook", 8, 0, 3, 41, false, true, false, "TypeScript", "Fork of atelier/sketchbook",
 			nil, nil,
 		),
-		dRepo("mira/recipes", 12, 3, 0, true, true, false, "Markdown", "Family recipes, private fork",
+		dRepo("mira/recipes", 12, 3, 0, 19, true, true, false, "Markdown", "Family recipes, private fork",
 			nil, nil,
 		),
-		dRepo("mira/harbor", 18, 7, 67, false, false, false, "Go", "A tiny static site that feels like a desk",
+		dRepo("mira/harbor", 18, 7, 67, 508, false, false, false, "Go", "A tiny static site that feels like a desk",
 			[]Item{
 				dIssue("mira/harbor", 8, "Drafts leak into the RSS feed", "mira", 10, 4),
 			},
 			nil,
 		),
-		dRepo("mira/old-notes", 90, 0, 1, false, false, true, "Markdown", "Pre-lumen notes. Leave them.",
+		dRepo("mira/old-notes", 90, 0, 1, 12, false, false, true, "Markdown", "Pre-lumen notes. Leave them.",
 			nil, nil,
 		),
 	)
@@ -115,7 +115,7 @@ func demoPersonal() Report {
 
 func demoLantern() Report {
 	return assemble(
-		dRepo("lantern/beacon", 0, 6, 31, false, false, false, "Go", "Status page that does not page you",
+		dRepo("lantern/beacon", 0, 6, 31, 223, false, false, false, "Go", "Status page that does not page you",
 			[]Item{
 				dIssue("lantern/beacon", 22, "Mute window ignores weekends", "owen", 0, 9),
 				dIssue("lantern/beacon", 19, "Incident timeline jumps a day", "mira", 1, 3),
@@ -124,19 +124,19 @@ func demoLantern() Report {
 				dPR("lantern/beacon", 24, "Store mute rules as a list, not a blob", "jules", 0, 4),
 			},
 		),
-		dRepo("lantern/keep", 2, 5, 14, false, false, false, "TypeScript", "Shared bookmarks, no accounts",
+		dRepo("lantern/keep", 2, 5, 14, 88, false, false, false, "TypeScript", "Shared bookmarks, no accounts",
 			[]Item{
 				dIssue("lantern/keep", 7, "Tags collide after a rename", "priya", 2, 2),
 			},
 			nil,
 		),
-		dRepo("lantern/handbook", 4, 0, 0, true, false, false, "Markdown", "How we do things",
+		dRepo("lantern/handbook", 4, 0, 0, 47, true, false, false, "Markdown", "How we do things",
 			[]Item{
 				dIssue("lantern/handbook", 3, "On-call page is a year out of date", "kate", 3, 6),
 			},
 			nil,
 		),
-		dRepo("lantern/site", 9, 8, 5, false, false, false, "HTML", "lantern.example",
+		dRepo("lantern/site", 9, 8, 5, 61, false, false, false, "HTML", "lantern.example",
 			nil,
 			[]Item{
 				dPR("lantern/site", 12, "Drop the stock hero image", "mira", 8, 1),
@@ -147,7 +147,7 @@ func demoLantern() Report {
 
 func demoNorthwind() Report {
 	return assemble(
-		dRepo("northwind/ledger", 0, 14, 9, false, false, false, "Go", "Invoices that print on one page",
+		dRepo("northwind/ledger", 0, 14, 9, 340, false, false, false, "Go", "Invoices that print on one page",
 			[]Item{
 				dIssue("northwind/ledger", 31, "Tax line rounds the wrong way in JPY", "nico", 0, 16),
 				dIssue("northwind/ledger", 28, "PDF footer clips on A4", "mira", 1, 8),
@@ -156,13 +156,13 @@ func demoNorthwind() Report {
 				dPR("northwind/ledger", 33, "Let a line item span two pages", "owen", 0, 11),
 			},
 		),
-		dRepo("northwind/catalog", 3, 9, 4, false, false, false, "TypeScript", "What is in the warehouse",
+		dRepo("northwind/catalog", 3, 9, 4, 102, false, false, false, "TypeScript", "What is in the warehouse",
 			[]Item{
 				dIssue("northwind/catalog", 16, "SKU search is case-sensitive", "kate", 3, 4),
 			},
 			nil,
 		),
-		dRepo("northwind/ops-scripts", 7, 2, 0, true, false, false, "Shell", "The glue",
+		dRepo("northwind/ops-scripts", 7, 2, 0, 76, true, false, false, "Shell", "The glue",
 			nil, nil,
 		),
 	)
@@ -170,7 +170,7 @@ func demoNorthwind() Report {
 
 func demoRivulet() Report {
 	return assemble(
-		dRepo("rivulet/stream", 1, 1, 53, false, false, false, "Rust", "Append-only logs over a cheap VPS",
+		dRepo("rivulet/stream", 1, 1, 53, 891, false, false, false, "Rust", "Append-only logs over a cheap VPS",
 			[]Item{
 				dIssue("rivulet/stream", 40, "Compaction holds the write lock too long", "jules", 0, 22),
 				dIssue("rivulet/stream", 37, "Document the retention flag", "mira", 2, 0),
@@ -179,7 +179,7 @@ func demoRivulet() Report {
 				dPR("rivulet/stream", 41, "Background compaction", "jules", 0, 3),
 			},
 		),
-		dRepo("rivulet/weir", 6, 4, 11, false, false, false, "Go", "A small dam in front of stream",
+		dRepo("rivulet/weir", 6, 4, 11, 134, false, false, false, "Go", "A small dam in front of stream",
 			nil,
 			[]Item{
 				dPR("rivulet/weir", 8, "Rate-limit by token, not IP", "priya", 5, 6),
@@ -204,7 +204,7 @@ func assemble(parts ...struct {
 	return r
 }
 
-func dRepo(name string, days, hours, stars int, priv, fork, archived bool, lang, desc string, issues, prs []Item) struct {
+func dRepo(name string, days, hours, stars, commits int, priv, fork, archived bool, lang, desc string, issues, prs []Item) struct {
 	repo   Item
 	issues []Item
 	prs    []Item
@@ -225,6 +225,7 @@ func dRepo(name string, days, hours, stars int, priv, fork, archived bool, lang,
 			Archived:    archived,
 			Description: desc,
 			Stars:       stars,
+			CommitCount: commits,
 			Language:    lang,
 		},
 		issues: issues,

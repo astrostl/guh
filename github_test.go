@@ -182,32 +182,38 @@ func TestLoadReportWith(t *testing.T) {
 				{"nameWithOwner":"astrostl/old","url":"https://github.com/astrostl/old","updatedAt":"2024-01-01T00:00:00Z"},
 				{"nameWithOwner":"astrostl/new","url":"https://github.com/astrostl/new","isPrivate":true,"updatedAt":"2026-01-01T00:00:00Z","description":"fresh","stargazerCount":5,"primaryLanguage":{"name":"Go"}}
 			]`), nil
-		case strings.HasPrefix(joined, "api graphql"):
+		case strings.Contains(joined, "owner="):
 			return []byte(`{
 				"data": {
-					"viewer": {
-						"repositories": {
-							"pageInfo": {"hasNextPage": false, "endCursor": ""},
+					"repository": {
+						"issues": {
+							"totalCount": 2,
 							"nodes": [
-								{
-									"nameWithOwner": "astrostl/new",
-									"issues": {
-										"totalCount": 2,
-										"nodes": [
-											{"number":2,"title":"Later","url":"https://github.com/astrostl/new/issues/2","updatedAt":"2026-02-01T00:00:00Z","author":{"login":"alice"}},
-											{"number":1,"title":"Earlier","url":"https://github.com/astrostl/new/issues/1","updatedAt":"2026-01-01T00:00:00Z"}
-										]
-									},
-									"pullRequests": {
-										"totalCount": 1,
-										"nodes": [
-											{"number":7,"title":"Ship it","url":"https://github.com/astrostl/new/pull/7","updatedAt":"2026-03-01T00:00:00Z","author":{"login":"bob"}}
-										]
-									}
-								}
+								{"number":2,"title":"Later","url":"https://github.com/astrostl/new/issues/2","updatedAt":"2026-02-01T00:00:00Z","author":{"login":"alice"}},
+								{"number":1,"title":"Earlier","url":"https://github.com/astrostl/new/issues/1","updatedAt":"2026-01-01T00:00:00Z"}
+							]
+						},
+						"pullRequests": {
+							"totalCount": 1,
+							"nodes": [
+								{"number":7,"title":"Ship it","url":"https://github.com/astrostl/new/pull/7","updatedAt":"2026-03-01T00:00:00Z","author":{"login":"bob"}}
 							]
 						}
 					}
+				}
+			}`), nil
+		case strings.Contains(joined, "history"):
+			return []byte(`{
+				"data": {
+					"r0": {"defaultBranchRef": {"target": {"history": {"totalCount": 42}}}},
+					"r1": {"defaultBranchRef": {"target": {"history": {"totalCount": 3}}}}
+				}
+			}`), nil
+		case strings.Contains(joined, "o0="):
+			return []byte(`{
+				"data": {
+					"r0": {"issues": {"totalCount": 2}, "pullRequests": {"totalCount": 1}},
+					"r1": {"issues": {"totalCount": 0}, "pullRequests": {"totalCount": 0}}
 				}
 			}`), nil
 		default:
@@ -225,8 +231,8 @@ func TestLoadReportWith(t *testing.T) {
 	if !report.Repos[0].Private || report.Repos[0].Description != "fresh" || report.Repos[0].Stars != 5 || report.Repos[0].Language != "Go" {
 		t.Fatalf("repo fields = %+v", report.Repos[0])
 	}
-	if report.Repos[0].IssueCount != 2 || report.Repos[0].PRCount != 1 {
-		t.Fatalf("repo counts = issues %d prs %d", report.Repos[0].IssueCount, report.Repos[0].PRCount)
+	if report.Repos[0].IssueCount != 2 || report.Repos[0].PRCount != 1 || report.Repos[0].CommitCount != 42 {
+		t.Fatalf("repo counts = issues %d prs %d commits %d", report.Repos[0].IssueCount, report.Repos[0].PRCount, report.Repos[0].CommitCount)
 	}
 	if len(report.Issues) != 2 || report.Issues[0].Number != 2 || report.Issues[0].Author != "alice" {
 		t.Fatalf("issues = %+v", report.Issues)
@@ -247,9 +253,6 @@ func TestLoadReportWithOwner(t *testing.T) {
 		mu.Lock()
 		seen = append(seen, joined)
 		mu.Unlock()
-		if strings.HasPrefix(joined, "api graphql") {
-			return []byte(`{"data":{"repositoryOwner":{"repositories":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}`), nil
-		}
 		return []byte("[]"), nil
 	}
 	if _, err := loadReportWith(context.Background(), run, "acme"); err != nil {
@@ -259,46 +262,108 @@ func TestLoadReportWithOwner(t *testing.T) {
 	if !strings.Contains(joined, "repo list acme ") {
 		t.Fatalf("expected org repo list, got %q", joined)
 	}
-	if !strings.Contains(joined, "api graphql") || !strings.Contains(joined, "login=acme") {
-		t.Fatalf("expected org graphql activity, got %q", joined)
+}
+
+func TestFetchRepoCountBatch(t *testing.T) {
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "o0=acme") || !strings.Contains(joined, "n0=widgets") {
+			t.Fatalf("unexpected args %q", joined)
+		}
+		if strings.Contains(joined, "history") {
+			t.Fatalf("issue/PR count query should not ask for commit history: %q", joined)
+		}
+		return []byte(`{"data":{"r0":{"issues":{"totalCount":0},"pullRequests":{"totalCount":2}}}}`), nil
+	}
+	got, err := fetchRepoCountBatch(context.Background(), run, []Item{{Repo: "acme/widgets"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Repo != "acme/widgets" || got[0].PRCount != 2 || got[0].IssueCount != 0 || got[0].CommitCount != 0 {
+		t.Fatalf("counts = %+v", got)
 	}
 }
 
-func TestActivityPageUsesRepoTotals(t *testing.T) {
+func TestFetchRepoCommitBatch(t *testing.T) {
 	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
-		if !strings.Contains(strings.Join(args, " "), "api graphql") {
-			t.Fatalf("unexpected args %v", args)
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "history") || !strings.Contains(joined, "o0=acme") {
+			t.Fatalf("unexpected args %q", joined)
+		}
+		return []byte(`{"data":{"r0":{"defaultBranchRef":{"target":{"history":{"totalCount":11}}}}}}`), nil
+	}
+	got, err := fetchRepoCommitBatch(context.Background(), run, []Item{{Repo: "acme/widgets"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].CommitCount != 11 {
+		t.Fatalf("commits = %+v", got)
+	}
+}
+
+func TestFetchRepoItems(t *testing.T) {
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "owner=acme") || !strings.Contains(joined, "name=widgets") {
+			t.Fatalf("unexpected args %q", joined)
+		}
+		if strings.Contains(joined, "pullRequests") {
+			return []byte(`{
+				"data": {
+					"repository": {
+						"pullRequests": {"pageInfo": {"hasNextPage": false}, "nodes": [{"number":4,"title":"Fix","url":"https://github.com/acme/widgets/pull/4","updatedAt":"2026-03-02T00:00:00Z","author":{"login":"dev"}}]}
+					}
+				}
+			}`), nil
 		}
 		return []byte(`{
 			"data": {
-				"repositoryOwner": {
-					"repositories": {
-						"pageInfo": {"hasNextPage": false, "endCursor": "c1"},
-						"nodes": [{
-							"nameWithOwner": "acme/widgets",
-							"issues": {"totalCount": 0, "nodes": []},
-							"pullRequests": {
-								"totalCount": 2,
-								"nodes": [
-									{"number":2,"title":"Later change","url":"https://github.com/acme/widgets/pull/2","updatedAt":"2026-03-01T00:00:00Z","author":{"login":"dev"}},
-									{"number":1,"title":"Earlier change","url":"https://github.com/acme/widgets/pull/1","updatedAt":"2024-01-01T00:00:00Z","author":{"login":"dev"}}
-								]
-							}
-						}]
-					}
+				"repository": {
+					"issues": {"pageInfo": {"hasNextPage": false}, "nodes": [{"number":3,"title":"Bug","url":"https://github.com/acme/widgets/issues/3","updatedAt":"2026-03-01T00:00:00Z","author":{"login":"dev"}}]}
 				}
 			}
 		}`), nil
 	}
-	page, err := fetchActivityPage(context.Background(), run, "acme", "")
+	issues, prs, err := fetchRepoItems(context.Background(), run, "acme/widgets")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Repos) != 1 || page.Repos[0].Repo != "acme/widgets" || page.Repos[0].PRCount != 2 {
-		t.Fatalf("repo counts = %+v", page.Repos)
+	if len(issues) != 1 || issues[0].Number != 3 || issues[0].Title != "Bug" {
+		t.Fatalf("issues = %+v", issues)
 	}
-	if len(page.PRs) != 2 || page.PRs[0].Number != 2 || page.PRs[1].Number != 1 {
-		t.Fatalf("prs = %+v", page.PRs)
+	if len(prs) != 1 || prs[0].Number != 4 || prs[0].Kind != KindPR {
+		t.Fatalf("prs = %+v", prs)
+	}
+}
+
+func TestFetchRepoItemsPages(t *testing.T) {
+	var issueCalls int
+	run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "pullRequests") {
+			return []byte(`{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}`), nil
+		}
+		issueCalls++
+		if issueCalls == 1 {
+			return []byte(`{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":true,"endCursor":"c2"},"nodes":[{"number":2,"title":"Newer","url":"https://github.com/acme/widgets/issues/2","updatedAt":"2026-03-02T00:00:00Z","author":{"login":"dev"}}]}}}}`), nil
+		}
+		if !strings.Contains(joined, "after=c2") {
+			t.Fatalf("expected second page cursor, got %q", joined)
+		}
+		return []byte(`{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false},"nodes":[{"number":1,"title":"Older","url":"https://github.com/acme/widgets/issues/1","updatedAt":"2026-03-01T00:00:00Z","author":{"login":"dev"}}]}}}}`), nil
+	}
+	issues, prs, err := fetchRepoItems(context.Background(), run, "acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issueCalls != 2 {
+		t.Fatalf("issue pages = %d, want 2", issueCalls)
+	}
+	if len(issues) != 2 || issues[0].Number != 2 || issues[1].Number != 1 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	if len(prs) != 0 {
+		t.Fatalf("prs = %+v", prs)
 	}
 }
 

@@ -39,6 +39,7 @@ type Item struct {
 	Comments    int
 	IssueCount  int
 	PRCount     int
+	CommitCount int
 }
 
 func (it Item) TypeEmoji() string {
@@ -202,35 +203,40 @@ func loadReport(ctx context.Context, owner string) (Report, error) {
 }
 
 func loadReportWith(ctx context.Context, run runner, owner string) (Report, error) {
-	var (
-		wg      sync.WaitGroup
-		repos   []Item
-		counted []Item
-		issues  []Item
-		prs     []Item
-		errR    error
-		errA    error
-	)
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		repos, errR = fetchRepos(ctx, run, owner)
-	}()
-	go func() {
-		defer wg.Done()
-		counted, issues, prs, errA = fetchAllActivity(ctx, run, owner)
-	}()
-	wg.Wait()
-
-	if errR != nil {
-		return Report{}, errR
+	repos, err := fetchRepos(ctx, run, owner)
+	if err != nil {
+		return Report{}, err
 	}
-	if errA != nil {
-		return Report{}, errA
+	counted, err := fetchRepoCounts(ctx, run, repos)
+	if err != nil {
+		return Report{}, err
 	}
+	repos = applyIssuePRCounts(repos, counted)
+	commits, err := fetchRepoCommitCounts(ctx, run, repos)
+	if err != nil {
+		return Report{}, err
+	}
+	repos = applyCommitCounts(repos, commits)
+	issues, prs, err := fetchReportItems(ctx, run, repos)
+	if err != nil {
+		return Report{}, err
+	}
+	return Report{Repos: repos, Issues: issues, PRs: prs}, nil
+}
 
-	return Report{Repos: applyRepoCounts(repos, counted), Issues: issues, PRs: prs}, nil
+func fetchReportItems(ctx context.Context, run runner, repos []Item) (issues, prs []Item, err error) {
+	for _, repo := range repos {
+		if repo.IssueCount == 0 && repo.PRCount == 0 {
+			continue
+		}
+		iss, pulls, err := fetchRepoItems(ctx, run, repo.Repo)
+		if err != nil {
+			return nil, nil, err
+		}
+		issues = append(issues, iss...)
+		prs = append(prs, pulls...)
+	}
+	return issues, prs, nil
 }
 
 type ghRepo struct {
@@ -257,39 +263,24 @@ type activityPage struct {
 }
 
 const (
-	gqlOwnerActivity = `query($login: String!, $after: String) {
-  repositoryOwner(login: $login) {
-    repositories(first: 50, after: $after, ownerAffiliations: OWNER, orderBy: {field: UPDATED_AT, direction: DESC}) {
+	countBatchSize  = 50
+	countWorkers    = 4
+	commitBatchSize = 8
+	commitWorkers   = 3
+
+	gqlRepoIssues = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: 100, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
-      nodes {
-        nameWithOwner
-        issues(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          totalCount
-          nodes { number title url updatedAt author { login } }
-        }
-        pullRequests(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          totalCount
-          nodes { number title url updatedAt author { login } }
-        }
-      }
+      nodes { number title url updatedAt author { login } }
     }
   }
 }`
-	gqlViewerActivity = `query($after: String) {
-  viewer {
-    repositories(first: 50, after: $after, ownerAffiliations: OWNER, orderBy: {field: UPDATED_AT, direction: DESC}) {
+	gqlRepoPRs = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
-      nodes {
-        nameWithOwner
-        issues(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          totalCount
-          nodes { number title url updatedAt author { login } }
-        }
-        pullRequests(states: OPEN, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          totalCount
-          nodes { number title url updatedAt author { login } }
-        }
-      }
+      nodes { number title url updatedAt author { login } }
     }
   }
 }`
@@ -309,35 +300,36 @@ type gqlIssueNode struct {
 
 type gqlIssueConn struct {
 	TotalCount int            `json:"totalCount"`
+	PageInfo   gqlPageInfo    `json:"pageInfo"`
 	Nodes      []gqlIssueNode `json:"nodes"`
 }
 
-type gqlRepoNode struct {
-	NameWithOwner string       `json:"nameWithOwner"`
-	Issues        gqlIssueConn `json:"issues"`
-	PullRequests  gqlIssueConn `json:"pullRequests"`
+type gqlPageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
 }
 
-type gqlRepoConn struct {
-	PageInfo struct {
-		HasNextPage bool   `json:"hasNextPage"`
-		EndCursor   string `json:"endCursor"`
-	} `json:"pageInfo"`
-	Nodes []gqlRepoNode `json:"nodes"`
+type gqlCountNode struct {
+	Issues struct {
+		TotalCount int `json:"totalCount"`
+	} `json:"issues"`
+	PullRequests struct {
+		TotalCount int `json:"totalCount"`
+	} `json:"pullRequests"`
+	DefaultBranchRef *struct {
+		Target *struct {
+			History struct {
+				TotalCount int `json:"totalCount"`
+			} `json:"history"`
+		} `json:"target"`
+	} `json:"defaultBranchRef"`
 }
 
-type gqlActivityResp struct {
-	Data struct {
-		RepositoryOwner *struct {
-			Repositories gqlRepoConn `json:"repositories"`
-		} `json:"repositoryOwner"`
-		Viewer *struct {
-			Repositories gqlRepoConn `json:"repositories"`
-		} `json:"viewer"`
-	} `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
+func (n gqlCountNode) commitCount() int {
+	if n.DefaultBranchRef == nil || n.DefaultBranchRef.Target == nil {
+		return 0
+	}
+	return n.DefaultBranchRef.Target.History.TotalCount
 }
 
 func fetchRepos(ctx context.Context, run runner, owner string) ([]Item, error) {
@@ -377,75 +369,246 @@ func fetchRepos(ctx context.Context, run runner, owner string) ([]Item, error) {
 	return items, nil
 }
 
-func fetchAllActivity(ctx context.Context, run runner, owner string) (counted, issues, prs []Item, err error) {
-	after := ""
-	for {
-		page, err := fetchActivityPage(ctx, run, owner, after)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		counted = append(counted, page.Repos...)
-		issues = append(issues, page.Issues...)
-		prs = append(prs, page.PRs...)
-		if !page.HasMore {
-			break
-		}
-		after = page.After
-	}
-	return counted, issues, prs, nil
+func fetchRepoCounts(ctx context.Context, run runner, repos []Item) ([]Item, error) {
+	return fetchAliasedBatches(ctx, run, repos, countBatchSize, countWorkers, fetchRepoCountBatch)
 }
 
-func fetchActivityPage(ctx context.Context, run runner, owner, after string) (activityPage, error) {
-	args := []string{"api", "graphql"}
-	if owner != "" {
-		args = append(args, "-f", "query="+gqlOwnerActivity, "-f", "login="+owner)
-	} else {
-		args = append(args, "-f", "query="+gqlViewerActivity)
+func fetchRepoCommitCounts(ctx context.Context, run runner, repos []Item) ([]Item, error) {
+	return fetchAliasedBatches(ctx, run, repos, commitBatchSize, commitWorkers, fetchRepoCommitBatch)
+}
+
+func fetchAliasedBatches(ctx context.Context, run runner, repos []Item, size, workers int, fn func(context.Context, runner, []Item) ([]Item, error)) ([]Item, error) {
+	if len(repos) == 0 {
+		return nil, nil
 	}
-	if after != "" {
-		args = append(args, "-f", "after="+after)
+	type span struct{ i, j int }
+	var jobs []span
+	for i := 0; i < len(repos); i += size {
+		j := i + size
+		if j > len(repos) {
+			j = len(repos)
+		}
+		jobs = append(jobs, span{i, j})
 	}
+	out := make([][]Item, len(jobs))
+	errCh := make(chan error, len(jobs))
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for k, job := range jobs {
+		wg.Add(1)
+		go func(k int, job span) {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			case sem <- struct{}{}:
+			}
+			defer func() { <-sem }()
+			batch, err := fn(ctx, run, repos[job.i:job.j])
+			if err != nil {
+				errCh <- err
+				return
+			}
+			out[k] = batch
+		}(k, job)
+	}
+	wg.Wait()
+	close(errCh)
+	if err, ok := <-errCh; ok && err != nil {
+		return nil, err
+	}
+	var counted []Item
+	for _, batch := range out {
+		counted = append(counted, batch...)
+	}
+	return counted, nil
+}
+
+const gqlCountFields = "issues(states: OPEN) { totalCount } pullRequests(states: OPEN) { totalCount }"
+const gqlCommitFields = "defaultBranchRef { target { ... on Commit { history { totalCount } } } }"
+
+func fetchRepoCountBatch(ctx context.Context, run runner, repos []Item) ([]Item, error) {
+	nodes, err := fetchAliasedRepoNodes(ctx, run, repos, gqlCountFields, "list issue/PR counts")
+	if err != nil {
+		return nil, err
+	}
+	var counted []Item
+	for _, n := range nodes {
+		counted = append(counted, Item{
+			Kind:       KindRepo,
+			Repo:       n.repo,
+			IssueCount: n.node.Issues.TotalCount,
+			PRCount:    n.node.PullRequests.TotalCount,
+		})
+	}
+	return counted, nil
+}
+
+func fetchRepoCommitBatch(ctx context.Context, run runner, repos []Item) ([]Item, error) {
+	nodes, err := fetchAliasedRepoNodes(ctx, run, repos, gqlCommitFields, "list commit counts")
+	if err != nil {
+		return nil, err
+	}
+	var counted []Item
+	for _, n := range nodes {
+		counted = append(counted, Item{
+			Kind:        KindRepo,
+			Repo:        n.repo,
+			CommitCount: n.node.commitCount(),
+		})
+	}
+	return counted, nil
+}
+
+type aliasedCount struct {
+	repo string
+	node *gqlCountNode
+}
+
+func fetchAliasedRepoNodes(ctx context.Context, run runner, repos []Item, fields, errLabel string) ([]aliasedCount, error) {
+	if len(repos) == 0 {
+		return nil, nil
+	}
+	var (
+		b     strings.Builder
+		args  = []string{"api", "graphql"}
+		alias = make([]string, 0, len(repos))
+	)
+	b.WriteString("query(")
+	firstVar := true
+	for i, repo := range repos {
+		owner, name, err := splitRepoName(repo.Repo)
+		if err != nil {
+			continue
+		}
+		if !firstVar {
+			b.WriteString(", ")
+		}
+		firstVar = false
+		fmt.Fprintf(&b, "$o%d: String!, $n%d: String!", i, i)
+		args = append(args, "-f", fmt.Sprintf("o%d=%s", i, owner), "-f", fmt.Sprintf("n%d=%s", i, name))
+		alias = append(alias, fmt.Sprintf("r%d", i)+"\t"+repo.Repo)
+	}
+	if len(alias) == 0 {
+		return nil, nil
+	}
+	b.WriteString(") {")
+	for i, repo := range repos {
+		if _, _, err := splitRepoName(repo.Repo); err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, " r%d: repository(owner: $o%d, name: $n%d) { %s }", i, i, i, fields)
+	}
+	b.WriteString(" }")
+	args = append(args, "-f", "query="+b.String())
+
 	out, err := run(ctx, "gh", args...)
 	if err != nil {
-		return activityPage{}, fmt.Errorf("list issues and PRs: %w", err)
+		return nil, fmt.Errorf("%s: %w", errLabel, err)
 	}
-	var raw gqlActivityResp
+	var raw struct {
+		Data   map[string]*gqlCountNode `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return activityPage{}, fmt.Errorf("parse issues and PRs: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", errLabel, err)
 	}
-	if len(raw.Errors) > 0 {
-		return activityPage{}, fmt.Errorf("list issues and PRs: %s", raw.Errors[0].Message)
+	if raw.Data == nil && len(raw.Errors) > 0 {
+		return nil, fmt.Errorf("%s: %s", errLabel, raw.Errors[0].Message)
 	}
-
-	var conn gqlRepoConn
-	switch {
-	case owner != "" && raw.Data.RepositoryOwner != nil:
-		conn = raw.Data.RepositoryOwner.Repositories
-	case owner == "" && raw.Data.Viewer != nil:
-		conn = raw.Data.Viewer.Repositories
-	default:
-		return activityPage{}, fmt.Errorf("list issues and PRs: empty GraphQL response")
-	}
-
-	page := activityPage{
-		After:   conn.PageInfo.EndCursor,
-		HasMore: conn.PageInfo.HasNextPage && conn.PageInfo.EndCursor != "",
-	}
-	for _, n := range conn.Nodes {
-		page.Repos = append(page.Repos, Item{
-			Kind:       KindRepo,
-			Repo:       n.NameWithOwner,
-			IssueCount: n.Issues.TotalCount,
-			PRCount:    n.PullRequests.TotalCount,
-		})
-		for _, iss := range n.Issues.Nodes {
-			page.Issues = append(page.Issues, itemFromGQL(KindIssue, n.NameWithOwner, iss))
+	var counted []aliasedCount
+	for _, pair := range alias {
+		key, repo, _ := strings.Cut(pair, "\t")
+		node := raw.Data[key]
+		if node == nil {
+			continue
 		}
-		for _, pr := range n.PullRequests.Nodes {
-			page.PRs = append(page.PRs, itemFromGQL(KindPR, n.NameWithOwner, pr))
-		}
+		counted = append(counted, aliasedCount{repo: repo, node: node})
 	}
-	return page, nil
+	return counted, nil
+}
+
+func splitRepoName(repo string) (owner, name string, err error) {
+	repo = strings.TrimSpace(repo)
+	i := strings.IndexByte(repo, '/')
+	if i <= 0 || i == len(repo)-1 {
+		return "", "", fmt.Errorf("invalid repo %q", repo)
+	}
+	return repo[:i], repo[i+1:], nil
+}
+
+func fetchRepoItems(ctx context.Context, run runner, repo string) (issues, prs []Item, err error) {
+	owner, name, err := splitRepoName(repo)
+	if err != nil {
+		return nil, nil, err
+	}
+	issues, err = fetchRepoConn(ctx, run, repo, owner, name, KindIssue, gqlRepoIssues)
+	if err != nil {
+		return nil, nil, err
+	}
+	prs, err = fetchRepoConn(ctx, run, repo, owner, name, KindPR, gqlRepoPRs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return issues, prs, nil
+}
+
+func fetchRepoConn(ctx context.Context, run runner, repo, owner, name string, kind Kind, query string) ([]Item, error) {
+	var (
+		items []Item
+		after string
+	)
+	field := "issues"
+	if kind == KindPR {
+		field = "pullRequests"
+	}
+	for {
+		args := []string{"api", "graphql", "-f", "query=" + query, "-f", "owner=" + owner, "-f", "name=" + name}
+		if after == "" {
+			args = append(args, "-F", "after=null")
+		} else {
+			args = append(args, "-f", "after="+after)
+		}
+		out, err := run(ctx, "gh", args...)
+		if err != nil {
+			return nil, fmt.Errorf("list %s %s: %w", repo, field, err)
+		}
+		var raw struct {
+			Data struct {
+				Repository *struct {
+					Issues       gqlIssueConn `json:"issues"`
+					PullRequests gqlIssueConn `json:"pullRequests"`
+				} `json:"repository"`
+			} `json:"data"`
+			Errors []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		if err := json.Unmarshal(out, &raw); err != nil {
+			return nil, fmt.Errorf("parse %s %s: %w", repo, field, err)
+		}
+		if len(raw.Errors) > 0 {
+			return nil, fmt.Errorf("list %s %s: %s", repo, field, raw.Errors[0].Message)
+		}
+		if raw.Data.Repository == nil {
+			return nil, fmt.Errorf("list %s %s: empty GraphQL response", repo, field)
+		}
+		conn := raw.Data.Repository.Issues
+		if kind == KindPR {
+			conn = raw.Data.Repository.PullRequests
+		}
+		for _, n := range conn.Nodes {
+			items = append(items, itemFromGQL(kind, repo, n))
+		}
+		if !conn.PageInfo.HasNextPage || conn.PageInfo.EndCursor == "" {
+			break
+		}
+		after = conn.PageInfo.EndCursor
+	}
+	return items, nil
 }
 
 func itemFromGQL(kind Kind, repo string, n gqlIssueNode) Item {
@@ -461,6 +624,10 @@ func itemFromGQL(kind Kind, repo string, n gqlIssueNode) Item {
 }
 
 func applyRepoCounts(repos, counted []Item) []Item {
+	return applyIssuePRCounts(applyCommitCounts(repos, counted), counted)
+}
+
+func applyIssuePRCounts(repos, counted []Item) []Item {
 	byName := make(map[string]Item, len(counted))
 	for _, c := range counted {
 		byName[c.Repo] = c
@@ -471,6 +638,21 @@ func applyRepoCounts(repos, counted []Item) []Item {
 		if c, ok := byName[r.Repo]; ok {
 			out[i].IssueCount = c.IssueCount
 			out[i].PRCount = c.PRCount
+		}
+	}
+	return out
+}
+
+func applyCommitCounts(repos, counted []Item) []Item {
+	byName := make(map[string]Item, len(counted))
+	for _, c := range counted {
+		byName[c.Repo] = c
+	}
+	out := make([]Item, len(repos))
+	copy(out, repos)
+	for i, r := range out {
+		if c, ok := byName[r.Repo]; ok {
+			out[i].CommitCount = c.CommitCount
 		}
 	}
 	return out

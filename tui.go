@@ -23,6 +23,7 @@ const (
 	cIssue    = "214"
 	cPR       = "141"
 	cStar     = "220"
+	cCommit   = "116"
 	cURL      = "117"
 	cOk       = "114"
 	cErr      = "167"
@@ -45,6 +46,7 @@ var (
 	styleIssue      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cIssue))
 	stylePR         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cPR))
 	styleStar       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cStar))
+	styleCommit     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(cCommit))
 	styleURL        = lipgloss.NewStyle().Foreground(lipgloss.Color(cURL)).Underline(true)
 	styleStatus     = lipgloss.NewStyle().Foreground(lipgloss.Color(cOk))
 	styleError      = lipgloss.NewStyle().Foreground(lipgloss.Color(cErr))
@@ -63,6 +65,7 @@ type SortField int
 const (
 	SortUpdated SortField = iota
 	SortName
+	SortCommits
 	SortIssues
 	SortPRs
 	SortStars
@@ -74,6 +77,8 @@ func (s SortField) String() string {
 		return "Update"
 	case SortName:
 		return "Name"
+	case SortCommits:
+		return "Commits"
 	case SortIssues:
 		return "Issues"
 	case SortPRs:
@@ -86,7 +91,7 @@ func (s SortField) String() string {
 }
 
 func (s SortField) Next() SortField {
-	return (s + 1) % 5
+	return (s + 1) % 6
 }
 
 type repoGroup struct {
@@ -134,6 +139,20 @@ type activityMsg struct {
 	page activityPage
 	err  error
 }
+type countsMsg struct {
+	id    int
+	repos []Item
+	kind  countKind
+	err   error
+}
+
+type countKind int
+
+const (
+	countIssuesPRs countKind = iota
+	countCommits
+)
+
 type errMsg struct{ err error }
 type statusClearMsg struct{ id int }
 type orgsMsg struct {
@@ -146,6 +165,13 @@ type commitsMsg struct {
 	commits []Commit
 }
 type commitsErrMsg struct{ err error }
+type repoItemsMsg struct {
+	id     int
+	repo   string
+	issues []Item
+	prs    []Item
+	err    error
+}
 
 type model struct {
 	report        Report
@@ -182,10 +208,17 @@ type model struct {
 	orgsErr     error
 	orgCursor   int
 
-	fetchID       int
-	awaitRepos    bool
-	awaitActivity bool
-	counts        []Item
+	fetchID        int
+	awaitRepos     bool
+	awaitActivity  bool
+	counts         []Item
+	loadedRepos    map[string]bool
+	loadingRepos   map[string]bool
+	countQueue     []int
+	countInflight  int
+	commitRepos    []Item
+	commitQueue    []int
+	commitInflight int
 
 	showCommits    bool
 	commitsRepo    string
@@ -220,6 +253,8 @@ func newModelWith(demo bool) model {
 		fetchID:       1,
 		awaitRepos:    true,
 		awaitActivity: true,
+		loadedRepos:   make(map[string]bool),
+		loadingRepos:  make(map[string]bool),
 		demo:          demo,
 	}
 }
@@ -231,6 +266,13 @@ func (m *model) armFetch() {
 	m.counts = nil
 	m.report.Issues = nil
 	m.report.PRs = nil
+	m.loadedRepos = make(map[string]bool)
+	m.loadingRepos = make(map[string]bool)
+	m.countQueue = nil
+	m.countInflight = 0
+	m.commitRepos = nil
+	m.commitQueue = nil
+	m.commitInflight = 0
 }
 
 func (m model) fetchCmd() tea.Cmd {
@@ -247,24 +289,86 @@ func (m model) fetchCmd() tea.Cmd {
 			},
 		)
 	}
-	return tea.Batch(
-		func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-			repos, err := fetchRepos(ctx, execRunner, owner)
-			return reposMsg{id: id, repos: repos, err: err}
-		},
-		fetchActivityCmd(id, owner, ""),
-	)
-}
-
-func fetchActivityCmd(id int, owner, after string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		page, err := fetchActivityPage(ctx, execRunner, owner, after)
-		return activityMsg{id: id, page: page, err: err}
+		repos, err := fetchRepos(ctx, execRunner, owner)
+		return reposMsg{id: id, repos: repos, err: err}
 	}
+}
+
+func (m *model) startCountWave(kind countKind) tea.Cmd {
+	queue, inflight, repos, size, max := &m.countQueue, &m.countInflight, m.report.Repos, countBatchSize, countWorkers
+	if kind == countCommits {
+		queue, inflight, repos, size, max = &m.commitQueue, &m.commitInflight, m.commitRepos, commitBatchSize, commitWorkers
+	}
+	var cmds []tea.Cmd
+	for *inflight < max && len(*queue) > 0 {
+		off := (*queue)[0]
+		*queue = (*queue)[1:]
+		*inflight++
+		cmds = append(cmds, fetchCountsCmd(m.fetchID, repos, off, size, kind))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m model) commitTargets() []Item {
+	seen := make(map[string]bool)
+	var ordered []Item
+	add := func(it Item) {
+		if it.Repo == "" || seen[it.Repo] {
+			return
+		}
+		seen[it.Repo] = true
+		ordered = append(ordered, it)
+	}
+	for _, r := range m.rows {
+		if r.typ == rowRepo {
+			add(r.item)
+		}
+	}
+	for _, it := range m.report.Repos {
+		add(it)
+	}
+	return ordered
+}
+
+func fetchCountsCmd(id int, repos []Item, offset, size int, kind countKind) tea.Cmd {
+	return func() tea.Msg {
+		if offset >= len(repos) {
+			return countsMsg{id: id, kind: kind}
+		}
+		end := offset + size
+		if end > len(repos) {
+			end = len(repos)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var (
+			counted []Item
+			err     error
+		)
+		if kind == countCommits {
+			counted, err = fetchRepoCommitBatch(ctx, execRunner, repos[offset:end])
+		} else {
+			counted, err = fetchRepoCountBatch(ctx, execRunner, repos[offset:end])
+		}
+		return countsMsg{id: id, repos: counted, kind: kind, err: err}
+	}
+}
+
+func batchOffsets(n, size int) []int {
+	if n <= 0 || size <= 0 {
+		return nil
+	}
+	var out []int
+	for i := 0; i < n; i += size {
+		out = append(out, i)
+	}
+	return out
 }
 
 func fetchCommitsCmd(repo string, demo bool) tea.Cmd {
@@ -330,8 +434,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		m.err = nil
-		m.applyReport(applyRepoCounts(msg.repos, m.counts), m.report.Issues, m.report.PRs)
-		return m, nil
+		m.applyReport(msg.repos, m.report.Issues, m.report.PRs)
+		if m.demo {
+			return m, nil
+		}
+		m.awaitActivity = true
+		m.countQueue = batchOffsets(len(m.report.Repos), countBatchSize)
+		m.countInflight = 0
+		return m, m.startCountWave(countIssuesPRs)
 
 	case activityMsg:
 		if msg.id != m.fetchID {
@@ -343,11 +453,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.mergeActivity(msg.page)
-		if msg.page.HasMore {
-			return m, fetchActivityCmd(msg.id, m.owner, msg.page.After)
+		m.awaitActivity = false
+		return m, m.nextRepoItemsCmd()
+
+	case countsMsg:
+		if msg.id != m.fetchID {
+			return m, nil
+		}
+		if msg.kind == countCommits {
+			m.commitInflight--
+			if msg.err != nil {
+				m.setStatus("commits: " + msg.err.Error())
+			} else {
+				m.applyReport(applyCommitCounts(m.report.Repos, msg.repos), m.report.Issues, m.report.PRs)
+			}
+			return m, m.startCountWave(countCommits)
+		}
+		m.countInflight--
+		if msg.err != nil {
+			m.awaitActivity = false
+			m.setStatus("issues/PRs: " + msg.err.Error())
+			return m, tea.Batch(m.nextRepoItemsCmd(), m.startCountWave(countIssuesPRs))
+		}
+		m.applyReport(applyIssuePRCounts(m.report.Repos, msg.repos), m.report.Issues, m.report.PRs)
+		if cmd := m.startCountWave(countIssuesPRs); cmd != nil {
+			return m, cmd
+		}
+		if m.countInflight > 0 {
+			return m, nil
 		}
 		m.awaitActivity = false
-		return m, nil
+		m.commitRepos = m.commitTargets()
+		m.commitQueue = batchOffsets(len(m.commitRepos), commitBatchSize)
+		m.commitInflight = 0
+		return m, tea.Batch(m.nextRepoItemsCmd(), m.startCountWave(countCommits))
+
+	case repoItemsMsg:
+		if msg.id != m.fetchID {
+			return m, nil
+		}
+		if m.loadingRepos != nil {
+			delete(m.loadingRepos, msg.repo)
+		}
+		if msg.err != nil {
+			m.setStatus(msg.err.Error())
+			return m, m.nextRepoItemsCmd()
+		}
+		if m.loadedRepos == nil {
+			m.loadedRepos = make(map[string]bool)
+		}
+		m.loadedRepos[msg.repo] = true
+		m.mergeRepoItems(msg.repo, msg.issues, msg.prs)
+		return m, m.nextRepoItemsCmd()
 
 	case errMsg:
 		m.loading = false
@@ -597,10 +754,12 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setActiveExpanded(false)
 	case "right":
 		m.setActiveExpanded(true)
+		return m, m.ensureRepoItems(m.activeRepoName())
 	case "h":
 		m.setAllExpanded(false)
 	case "l":
 		m.setAllExpanded(true)
+		return m, m.nextRepoItemsCmd()
 	case "pgup", "ctrl+u":
 		m.move(-m.pageSize())
 	case "pgdown", "ctrl+d":
@@ -797,9 +956,12 @@ func (m model) applyOwner(owner, focusRepo string) (tea.Model, tea.Cmd) {
 	}
 	if owner == m.owner {
 		if focusRepo != "" {
-			m.pendingRepo = focusRepo
+			m.ensureExpandedMap()
+			m.expandedRepos[focusRepo] = true
+			m.rebuildRows()
 			m.cursorToRepo(focusRepo)
 			m.ensureVisible()
+			return m, m.ensureRepoItems(focusRepo)
 		}
 		return m, nil
 	}
@@ -853,7 +1015,90 @@ func (m *model) mergeActivity(page activityPage) {
 	m.counts = append(m.counts, page.Repos...)
 	issues := append(append([]Item{}, m.report.Issues...), page.Issues...)
 	prs := append(append([]Item{}, m.report.PRs...), page.PRs...)
-	m.applyReport(applyRepoCounts(m.report.Repos, m.counts), issues, prs)
+	m.applyReport(applyIssuePRCounts(m.report.Repos, m.counts), issues, prs)
+}
+
+func groupIssueCount(g *repoGroup) int {
+	if g.repo.IssueCount > len(g.issues) {
+		return g.repo.IssueCount
+	}
+	return len(g.issues)
+}
+
+func groupPRCount(g *repoGroup) int {
+	if g.repo.PRCount > len(g.prs) {
+		return g.repo.PRCount
+	}
+	return len(g.prs)
+}
+
+func (m *model) mergeRepoItems(repo string, issues, prs []Item) {
+	keep := func(items []Item) []Item {
+		out := items[:0]
+		for _, it := range items {
+			if !strings.EqualFold(it.Repo, repo) {
+				out = append(out, it)
+			}
+		}
+		return out
+	}
+	m.report.Issues = append(keep(m.report.Issues), issues...)
+	m.report.PRs = append(keep(m.report.PRs), prs...)
+	m.groups = buildGroups(m.report)
+	m.rebuildRows()
+	m.ensureVisible()
+}
+
+func (m *model) repoNeedsItems(repo string) bool {
+	if m.demo || repo == "" {
+		return false
+	}
+	if m.loadedRepos[repo] || m.loadingRepos[repo] {
+		return false
+	}
+	for _, g := range m.groups {
+		if !strings.EqualFold(g.repo.Repo, repo) {
+			continue
+		}
+		return g.repo.IssueCount > 0 || g.repo.PRCount > 0 || len(g.issues) > 0 || len(g.prs) > 0
+	}
+	return false
+}
+
+func (m model) ensureRepoItems(repo string) tea.Cmd {
+	if !m.repoNeedsItems(repo) {
+		return nil
+	}
+	if m.loadingRepos == nil {
+		m.loadingRepos = make(map[string]bool)
+	}
+	m.loadingRepos[repo] = true
+	id := m.fetchID
+	demo := m.demo
+	return func() tea.Msg {
+		if demo {
+			return repoItemsMsg{id: id, repo: repo}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		issues, prs, err := fetchRepoItems(ctx, execRunner, repo)
+		return repoItemsMsg{id: id, repo: repo, issues: issues, prs: prs, err: err}
+	}
+}
+
+func (m model) nextRepoItemsCmd() tea.Cmd {
+	if m.demo {
+		return nil
+	}
+	for repo, exp := range m.expandedRepos {
+		if !exp {
+			continue
+		}
+		if cmd := m.ensureRepoItems(repo); cmd != nil {
+			return cmd
+		}
+	}
+	return nil
 }
 
 func (m model) activeRepoName() string {
@@ -1050,12 +1295,13 @@ func (m model) repoVisibilityOK(repo Item) bool {
 	return true
 }
 
-func (m model) visibleRepoStats() (repos, issues, prs, stars int) {
+func (m model) visibleRepoStats() (repos, commits, issues, prs, stars int) {
 	for _, r := range m.rows {
 		if r.typ != rowRepo {
 			continue
 		}
 		repos++
+		commits += r.item.CommitCount
 		issues += r.issuesCount
 		prs += r.prsCount
 		stars += r.item.Stars
@@ -1075,14 +1321,19 @@ func (m *model) rebuildRows() {
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
 		switch m.sortField {
+		case SortCommits:
+			if a.repo.CommitCount != b.repo.CommitCount {
+				return a.repo.CommitCount > b.repo.CommitCount
+			}
+			return a.repo.UpdatedAt.After(b.repo.UpdatedAt)
 		case SortIssues:
-			if len(a.issues) != len(b.issues) {
-				return len(a.issues) > len(b.issues)
+			if ca, cb := groupIssueCount(a), groupIssueCount(b); ca != cb {
+				return ca > cb
 			}
 			return a.repo.UpdatedAt.After(b.repo.UpdatedAt)
 		case SortPRs:
-			if len(a.prs) != len(b.prs) {
-				return len(a.prs) > len(b.prs)
+			if ca, cb := groupPRCount(a), groupPRCount(b); ca != cb {
+				return ca > cb
 			}
 			return a.repo.UpdatedAt.After(b.repo.UpdatedAt)
 		case SortStars:
@@ -1236,7 +1487,7 @@ func (m model) View() string {
 	bodyW := innerWidth(m.width)
 	cw := computeColWidths(bodyW)
 
-	repos, issues, prs, totalStars := m.visibleRepoStats()
+	repos, commits, issues, prs, totalStars := m.visibleRepoStats()
 
 	var titleRight string
 	var topOverlay string
@@ -1247,7 +1498,9 @@ func (m model) View() string {
 			titleRight = styleMuted.Render("fetching github activity…")
 		}
 	} else if m.awaitActivity {
-		titleRight = styleMuted.Render("loading issues & PRs…")
+		titleRight = styleMuted.Render("loading issue & PR counts…")
+	} else if m.commitInflight > 0 || len(m.commitQueue) > 0 {
+		titleRight = styleMuted.Render("loading commit counts…")
 	}
 
 	var pinned []string
@@ -1271,7 +1524,7 @@ func (m model) View() string {
 			body = []string{styleMuted.Render("  No repos, issues, or pull requests found")}
 		}
 	default:
-		topOverlay = renderColStats(cw, repos, issues, prs, totalStars, bodyW)
+		topOverlay = renderColStats(cw, repos, commits, issues, prs, totalStars, bodyW)
 		pinned = []string{renderColHeader(cw, m.sortField, bodyW)}
 		h := m.listHeight()
 		end := m.scroll + h
@@ -1395,6 +1648,7 @@ func renderInspectorLine(item Item, width int, now time.Time) string {
 type colWidths struct {
 	typeCol int
 	repo    int
+	commits int
 	issues  int
 	prs     int
 	stars   int
@@ -1405,12 +1659,13 @@ type colWidths struct {
 func computeColWidths(bodyWidth int) colWidths {
 	gap := 2
 	typeW := 4
+	commitsW := 8
 	issuesW := 8
 	prsW := 5
 	starsW := 7
 	updateW := 8
 
-	fixed := typeW + issuesW + prsW + starsW + updateW + 5*gap
+	fixed := typeW + commitsW + issuesW + prsW + starsW + updateW + 6*gap
 	repoW := bodyWidth - fixed
 	if repoW < 16 {
 		repoW = 16
@@ -1419,6 +1674,7 @@ func computeColWidths(bodyWidth int) colWidths {
 	return colWidths{
 		typeCol: typeW,
 		repo:    repoW,
+		commits: commitsW,
 		issues:  issuesW,
 		prs:     prsW,
 		stars:   starsW,
@@ -1427,10 +1683,11 @@ func computeColWidths(bodyWidth int) colWidths {
 	}
 }
 
-func renderColStats(cw colWidths, repos, issues, prs, stars, width int) string {
+func renderColStats(cw colWidths, repos, commits, issues, prs, stars, width int) string {
 	typeCell := dashFill(cw.typeCol)
 	// Indent with the same 2-cell cursor gutter used by repo rows.
 	repoCell := embedTokenLeft(cw.repo, 2, styleText.Render(fmt.Sprintf("%d", repos)))
+	commitCell := embedTokenRight(cw.commits, styleCount(commits, styleCommit, fmt.Sprintf("%d", commits)))
 	issCell := embedTokenRight(cw.issues, styleCount(issues, styleIssue, fmt.Sprintf("%d", issues)))
 	prCell := embedTokenRight(cw.prs, styleCount(prs, stylePR, fmt.Sprintf("%d", prs)))
 	starsCell := embedTokenRight(cw.stars, styleCount(stars, styleStar, fmt.Sprintf("%d", stars)))
@@ -1438,7 +1695,8 @@ func renderColStats(cw colWidths, repos, issues, prs, stars, width int) string {
 
 	line := typeCell +
 		dashFill(cw.gap) + repoCell +
-		dashFill(cw.gap) + issCell +
+		dashFill(cw.gap) + commitCell +
+		gapAfterToken(cw.gap) + issCell +
 		gapAfterToken(cw.gap) + prCell +
 		gapAfterToken(cw.gap) + starsCell +
 		gapAfterToken(cw.gap) + updCell
@@ -1513,6 +1771,11 @@ func renderColHeader(cw colWidths, sortField SortField, width int) string {
 		repoTitle = "REPO ▲"
 	}
 
+	commitsTitle := "COMMITS"
+	if sortField == SortCommits {
+		commitsTitle = "COMMITS▼"
+	}
+
 	issTitle := "ISSUES"
 	if sortField == SortIssues {
 		issTitle = "ISSUES ▼"
@@ -1535,6 +1798,7 @@ func renderColHeader(cw colWidths, sortField SortField, width int) string {
 
 	line := padTo(typeTitle, cw.typeCol) +
 		strings.Repeat(" ", cw.gap) + padTo(repoTitle, cw.repo) +
+		strings.Repeat(" ", cw.gap) + alignRight(commitsTitle, cw.commits) +
 		strings.Repeat(" ", cw.gap) + alignRight(issTitle, cw.issues) +
 		strings.Repeat(" ", cw.gap) + alignRight(prsTitle, cw.prs) +
 		strings.Repeat(" ", cw.gap) + alignRight(starsTitle, cw.stars) +
@@ -1587,6 +1851,11 @@ func renderRepoRow(r row, selected bool, cw colWidths, width int, now time.Time)
 	}
 	name = truncate(name, nameBudget)
 
+	commitStr := fmt.Sprintf("%d", r.item.CommitCount)
+	if r.item.CommitCount == 0 {
+		commitStr = "0"
+	}
+
 	issStr := fmt.Sprintf("%d", r.issuesCount)
 	if r.issuesCount == 0 {
 		issStr = "0"
@@ -1607,7 +1876,8 @@ func renderRepoRow(r row, selected bool, cw colWidths, width int, now time.Time)
 		prefixW := lipgloss.Width(prefix)
 		nameCell := styleSelected.Render(padTo(name, cw.repo-prefixW))
 		repoCell := styleCursor.Render(prefix) + nameCell
-		rest := strings.Repeat(" ", cw.gap) + alignRight(issStr, cw.issues) +
+		rest := strings.Repeat(" ", cw.gap) + alignRight(commitStr, cw.commits) +
+			strings.Repeat(" ", cw.gap) + alignRight(issStr, cw.issues) +
 			strings.Repeat(" ", cw.gap) + alignRight(prStr, cw.prs) +
 			strings.Repeat(" ", cw.gap) + alignRight(starsStr, cw.stars) +
 			strings.Repeat(" ", cw.gap) + alignRight(updStr, cw.update)
@@ -1622,12 +1892,13 @@ func renderRepoRow(r row, selected bool, cw colWidths, width int, now time.Time)
 	repoFormatted := prefix + styleText.Render(name)
 	repoCell := padTo(repoFormatted, cw.repo)
 
+	commitCell := alignRight(styleCount(r.item.CommitCount, styleCommit, commitStr), cw.commits)
 	issCell := alignRight(styleCount(r.issuesCount, styleIssue, issStr), cw.issues)
 	prCell := alignRight(styleCount(r.prsCount, stylePR, prStr), cw.prs)
 	starsCell := alignRight(styleCount(r.item.Stars, styleStar, starsStr), cw.stars)
 	updCell := alignRight(styleMuted.Render(updStr), cw.update)
 
-	line := typeCell + strings.Repeat(" ", cw.gap) + repoCell + strings.Repeat(" ", cw.gap) + issCell + strings.Repeat(" ", cw.gap) + prCell + strings.Repeat(" ", cw.gap) + starsCell + strings.Repeat(" ", cw.gap) + updCell
+	line := typeCell + strings.Repeat(" ", cw.gap) + repoCell + strings.Repeat(" ", cw.gap) + commitCell + strings.Repeat(" ", cw.gap) + issCell + strings.Repeat(" ", cw.gap) + prCell + strings.Repeat(" ", cw.gap) + starsCell + strings.Repeat(" ", cw.gap) + updCell
 	return padTo(line, width)
 }
 
@@ -1744,7 +2015,7 @@ func (m model) renderHelpModal() string {
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("P"), "Toggle private repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("f"), "Toggle non-forks only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("F"), "Toggle forks only"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("s"), "Cycle sort (Update, Name, Issues, PRs, Stars)"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("s"), "Cycle sort (Update, Name, Commits, Issues, PRs, Stars)"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("/"), "Search & filter repos / issues / PRs"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Esc"), "Clear search filter / close org picker"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("r"), "Refresh data from GitHub"),

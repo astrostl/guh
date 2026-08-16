@@ -1,17 +1,17 @@
 class Guh < Formula
   desc "TUI for GitHub repos via the local gh session"
   homepage "https://github.com/astrostl/guh"
-  version "v0.3.0"
+  version "v0.4.0"
   license "MIT"
 
   depends_on "gh"
 
   if OS.mac? && Hardware::CPU.arm?
-    url "https://github.com/astrostl/guh/releases/download/v0.3.0/guh-v0.3.0-darwin-arm64.tar.gz"
-    sha256 "9f06a54efe30a90669da2dafbe41bd282013d4bc18b36ed8a19967a5100e7a47"
+    url "https://github.com/astrostl/guh/releases/download/v0.4.0/guh-v0.4.0-darwin-arm64.tar.gz"
+    sha256 "26a8b507fb4a2f00cf39d2138c509e7810c6d6460fbae2f3edecca666cceb97a"
   elsif OS.mac? && Hardware::CPU.intel?
-    url "https://github.com/astrostl/guh/releases/download/v0.3.0/guh-v0.3.0-darwin-amd64.tar.gz"
-    sha256 "30d89fee6ae6f2f699fe765d1ffbc3ba79078fea23e34581ea558dc975c25f6a"
+    url "https://github.com/astrostl/guh/releases/download/v0.4.0/guh-v0.4.0-darwin-amd64.tar.gz"
+    sha256 "22c0c8cf5a15d3352bc0af209a06c927853b290fee73b7d07993cb3c7000aebb"
   else
     odie "guh is only supported on macOS via Homebrew. Build from source for Linux."
   end

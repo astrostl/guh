@@ -182,6 +182,12 @@ func TestSorting(t *testing.T) {
 		t.Fatalf("expected repo a first for SortName, got %s", m.rows[0].item.Repo)
 	}
 
+	// Next: Sort by Commits (neither sample repo has a count; keep updated-at order)
+	m.sortField = m.sortField.Next()
+	if m.sortField != SortCommits {
+		t.Fatalf("expected SortCommits next, got %s", m.sortField)
+	}
+
 	// Next: Sort by Issues (astrostl/a has 1 Issue, b has 0)
 	m.sortField = m.sortField.Next()
 	if m.sortField != SortIssues {
@@ -446,7 +452,7 @@ func TestViewMultiColumnLayout(t *testing.T) {
 	plain := stripANSI(view)
 
 	// Check for core frame, TYPE column, STARS column, UPDATE column & column headers (without DESCRIPTION)
-	for _, want := range []string{"╭", "╰", "│", "guh", "TYPE", "REPO", "ISSUES", "PRS", "STARS", "UPDATE", "🔒", "🍴", "astrostl/a", "astrostl/b", "-1", "-6"} {
+	for _, want := range []string{"╭", "╰", "│", "guh", "TYPE", "REPO", "COMMITS", "ISSUES", "PRS", "STARS", "UPDATE", "🔒", "🍴", "astrostl/a", "astrostl/b", "-1", "-6"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q:\n%s", want, plain)
 		}
@@ -507,11 +513,11 @@ func TestTopBorderStatsAlignWithHeader(t *testing.T) {
 	width := 100
 	bodyW := innerWidth(width)
 	cw := computeColWidths(bodyW)
-	top := displayCells(stripANSI(titledRuleWithOverlay(width, "guh", renderColStats(cw, 12, 4, 3, 99, bodyW))))
+	top := displayCells(stripANSI(titledRuleWithOverlay(width, "guh", renderColStats(cw, 12, 88, 4, 3, 99, bodyW))))
 	header := displayCells(stripANSI(sideLine(width, renderColHeader(cw, SortUpdated, bodyW))))
 	data := displayCells(stripANSI(sideLine(width, renderRepoRow(row{
 		typ:         rowRepo,
-		item:        Item{Repo: "owner/name", Stars: 7, UpdatedAt: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)},
+		item:        Item{Repo: "owner/name", Stars: 7, CommitCount: 21, UpdatedAt: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)},
 		issuesCount: 4,
 		prsCount:    3,
 	}, false, cw, bodyW, time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)))))
@@ -538,6 +544,9 @@ func TestTopBorderStatsAlignWithHeader(t *testing.T) {
 	if p, d := pos(top, '4'), pos(data, '4'); p != d {
 		t.Fatalf("issues digit col top=%d data=%d\n%s\n%s\n%s", p, d, string(top), string(header), string(data))
 	}
+	if p, d := pos(top, '8'), pos(data, '1'); p == -1 || d == -1 {
+		t.Fatalf("commits digits missing\n%s\n%s\n%s", string(top), string(header), string(data))
+	}
 }
 
 func displayCells(s string) []rune {
@@ -547,19 +556,22 @@ func displayCells(s string) []rune {
 
 func TestRenderColStatsAlignsWithColumns(t *testing.T) {
 	cw := computeColWidths(80)
-	plain := strings.ReplaceAll(stripANSI(renderColStats(cw, 12, 4, 3, 99, 80)), "─", " ")
+	plain := strings.ReplaceAll(stripANSI(renderColStats(cw, 12, 88, 4, 3, 99, 80)), "─", " ")
 	for _, labeled := range []string{"repos", "issues", "PRs", "Stars", "★"} {
 		if strings.Contains(plain, labeled) {
 			t.Fatalf("stats should be unlabeled, found %q in %q", labeled, plain)
 		}
 	}
 
-	typ, repo, issues, prs, stars, update := splitColCells(plain, cw)
+	typ, repo, commits, issues, prs, stars, update := splitColCells(plain, cw)
 	if typ != "" {
 		t.Fatalf("type cell = %q, want empty", typ)
 	}
 	if repo != "12" {
 		t.Fatalf("repo cell = %q, want 12", repo)
+	}
+	if commits != "88" {
+		t.Fatalf("commits cell = %q, want 88", commits)
 	}
 	if issues != "4" {
 		t.Fatalf("issues cell = %q, want 4", issues)
@@ -575,7 +587,7 @@ func TestRenderColStatsAlignsWithColumns(t *testing.T) {
 	}
 }
 
-func splitColCells(line string, cw colWidths) (typ, repo, issues, prs, stars, update string) {
+func splitColCells(line string, cw colWidths) (typ, repo, commits, issues, prs, stars, update string) {
 	pos := 0
 	cut := func(w int) string {
 		end := pos + w
@@ -591,6 +603,7 @@ func splitColCells(line string, cw colWidths) (typ, repo, issues, prs, stars, up
 	}
 	typ = cut(cw.typeCol)
 	repo = cut(cw.repo)
+	commits = cut(cw.commits)
 	issues = cut(cw.issues)
 	prs = cut(cw.prs)
 	stars = cut(cw.stars)
@@ -756,6 +769,30 @@ func TestURLPromptOwnerRepo(t *testing.T) {
 	}
 	if !m.loading || cmd == nil {
 		t.Fatal("expected fetch for owner/repo")
+	}
+}
+
+func TestUnfoldFetchesRepoItems(t *testing.T) {
+	m := newModel()
+	m.loading = false
+	m.report = Report{
+		Repos: []Item{{Kind: KindRepo, Repo: "acme/widgets", IssueCount: 2, UpdatedAt: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)}},
+	}
+	m.groups = buildGroups(m.report)
+	m.rebuildRows()
+	m.height = 24
+	m.width = 80
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	if !m.expandedRepos["acme/widgets"] {
+		t.Fatal("expected repo expanded")
+	}
+	if !m.loadingRepos["acme/widgets"] {
+		t.Fatal("expected repo items fetch to start")
+	}
+	if cmd == nil {
+		t.Fatal("expected fetch cmd")
 	}
 }
 
