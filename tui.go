@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // Color definitions
@@ -191,6 +192,10 @@ type model struct {
 	commitCursor   int
 
 	demo bool
+}
+
+func forceTrueColor() {
+	lipgloss.SetColorProfile(termenv.TrueColor)
 }
 
 func newModel() model {

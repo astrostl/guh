@@ -1,6 +1,8 @@
 # guh
 
-Repos for the logged-in `gh` user (or an org), with open issues, PRs, stars, and last update.
+A terminal UI for the GitHub repos your `gh` session can see. Yours or an org: open issues and PRs, stars, last update. Fold a repo to read what's open, flip through recent commits, switch orgs without leaving the list.
+
+![guh](guh.gif)
 
 Needs [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`). A TTY gets the interactive view; anything else dumps a table.
 

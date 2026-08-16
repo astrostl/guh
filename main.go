@@ -63,6 +63,7 @@ func run() error {
 		return nil
 	}
 
+	forceTrueColor()
 	p := tea.NewProgram(newModelWith(demo), tea.WithAltScreen())
 	_, err := p.Run()
 	return err

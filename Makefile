@@ -3,7 +3,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := guh
 DIST := dist
 
-.PHONY: help build clean all test lint fmt release package-macos checksums update-formula
+.PHONY: help build clean all test lint fmt release package-macos checksums update-formula gif
 
 .DEFAULT_GOAL := help
 
@@ -12,6 +12,7 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  build                    Build ./guh for the current platform with version stamping"
+	@echo "  gif                      Record guh.gif from demo.tape (needs vhs)"
 	@echo "  all                      Cross-compile binaries for all platforms into dist/"
 	@echo "  clean                    Remove ./guh and ./dist"
 	@echo ""
@@ -28,6 +29,9 @@ help:
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
+
+gif: build
+	vhs demo.tape
 
 fmt:
 	gofmt -s -w .
