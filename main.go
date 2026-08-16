@@ -2,14 +2,27 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"text/tabwriter"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 )
+
+var version = "dev"
+
+func init() {
+	if version != "dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -19,6 +32,13 @@ func main() {
 }
 
 func run() error {
+	showVer := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *showVer {
+		fmt.Printf("guh %s\n", version)
+		return nil
+	}
+
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
