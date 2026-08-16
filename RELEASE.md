@@ -21,6 +21,12 @@ Diff the TUI and GitHub client against the previous release tag and update `READ
 git diff $(git describe --tags --abbrev=0) -- tui.go github.go main.go README.md
 ```
 
+If the demo GIF changed, bump the `?v=` suffix on the README image to the new version so GitHub and browsers do not keep serving the previous colors:
+
+```md
+![guh](guh.gif?v=1.2.3)
+```
+
 Commit the README updates as part of the release commit in step 5.
 
 ### 3. Smoke-test the binary
@@ -44,7 +50,7 @@ make release VERSION=v1.2.3
 
 This will:
 - Verify `gofmt -s` formatting, `LICENSE` presence, and `go vet` (`lint`)
-- Build `./guh` and record `guh.gif` from `demo.tape` (`vhs`)
+- Build `./guh` and record a new `guh.gif` from `demo.tape` (`vhs`)
 - Cross-compile binaries for all platforms
 - Package the macOS binaries into tarballs (`dist/guh-v1.2.3-darwin-{arm64,amd64}.tar.gz`)
 - Compute SHA256 checksums
@@ -61,6 +67,8 @@ git push origin master v1.2.3
 
 ### 6. Create the GitHub release and upload artifacts
 
+Include the new `guh.gif` so the release has the same demo as the README.
+
 ```sh
 gh release create v1.2.3 \
   dist/guh-v1.2.3-darwin-arm64.tar.gz \
@@ -69,8 +77,15 @@ gh release create v1.2.3 \
   dist/guh-linux-arm64 \
   dist/guh-windows-amd64.exe \
   dist/guh-windows-arm64.exe \
+  guh.gif \
   --title "v1.2.3" \
   --notes "Brief description of what changed."
+```
+
+If the release already exists, replace the GIF asset:
+
+```sh
+gh release upload v1.2.3 guh.gif --clobber
 ```
 
 ### 7. Verify Homebrew

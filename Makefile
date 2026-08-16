@@ -74,9 +74,9 @@ update-formula: checksums
 # Then upload dist/ tarballs to the GitHub release
 release: lint gif update-formula
 	@echo "Formula updated for $(VERSION). Next steps:"
-	@echo "  1. git add Formula/$(BIN).rb guh.gif && git commit -m 'Release $(VERSION)'"
+	@echo "  1. git add README.md Formula/$(BIN).rb guh.gif && git commit -m 'Release $(VERSION)'"
 	@echo "  2. git tag $(VERSION) && git push origin master $(VERSION)"
-	@echo "  3. Upload $(DIST)/$(BIN)-$(VERSION)-darwin-*.tar.gz to the GitHub release"
+	@echo "  3. Upload $(DIST)/$(BIN)-$(VERSION)-darwin-*.tar.gz and guh.gif to the GitHub release"
 
 clean:
 	rm -rf $(BIN) $(DIST)
