@@ -1661,10 +1661,10 @@ func renderInspectorLine(item Item, width int, now time.Time) string {
 	default: // KindRepo
 		var tags []string
 		if item.Private {
-			tags = append(tags, styleMuted.Render("🔒 Private"))
+			tags = append(tags, styleMuted.Render("⊘ Private"))
 		}
 		if item.Fork {
-			tags = append(tags, styleMuted.Render("🍴 Fork"))
+			tags = append(tags, styleMuted.Render("⑂ Fork"))
 		}
 		if item.Archived {
 			tags = append(tags, styleMuted.Render("📦 Archived"))

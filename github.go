@@ -48,10 +48,10 @@ func (it Item) TypeEmoji() string {
 	}
 	var emojis []string
 	if it.Private {
-		emojis = append(emojis, "🔒")
+		emojis = append(emojis, "⊘")
 	}
 	if it.Fork {
-		emojis = append(emojis, "🍴")
+		emojis = append(emojis, "⑂")
 	}
 	return strings.Join(emojis, "")
 }
@@ -59,10 +59,10 @@ func (it Item) TypeEmoji() string {
 func (it Item) Tags() []string {
 	var tags []string
 	if it.Private {
-		tags = append(tags, "🔒")
+		tags = append(tags, "⊘")
 	}
 	if it.Fork {
-		tags = append(tags, "🍴")
+		tags = append(tags, "⑂")
 	}
 	if it.Archived {
 		tags = append(tags, "archived")

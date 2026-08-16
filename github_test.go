@@ -23,7 +23,7 @@ func TestItemLabel(t *testing.T) {
 		{
 			name: "private fork",
 			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Private: true, Fork: true},
-			want: "astrostl/guh  🔒 🍴",
+			want: "astrostl/guh  ⊘ ⑂",
 		},
 		{
 			name: "issue",
@@ -59,17 +59,17 @@ func TestTypeEmoji(t *testing.T) {
 		{
 			name: "private repo",
 			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Private: true},
-			want: "🔒",
+			want: "⊘",
 		},
 		{
 			name: "fork repo",
 			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Fork: true},
-			want: "🍴",
+			want: "⑂",
 		},
 		{
 			name: "private fork repo",
 			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Private: true, Fork: true},
-			want: "🔒🍴",
+			want: "⊘⑂",
 		},
 		{
 			name: "issue",

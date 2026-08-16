@@ -468,7 +468,7 @@ func TestViewMultiColumnLayout(t *testing.T) {
 	plain := stripANSI(view)
 
 	// Check for core frame, TYPE column, STARS column, UPDATE column & column headers (without DESCRIPTION)
-	for _, want := range []string{"╭", "╰", "│", "guh", "TYPE", "REPO", "COMMITS", "ISSUES", "PRS", "STARS", "UPDATE", "🔒", "🍴", "astrostl/a", "astrostl/b", "-1", "-6"} {
+	for _, want := range []string{"╭", "╰", "│", "guh", "TYPE", "REPO", "COMMITS", "ISSUES", "PRS", "STARS", "UPDATE", "⊘", "⑂", "astrostl/a", "astrostl/b", "-1", "-6"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q:\n%s", want, plain)
 		}
