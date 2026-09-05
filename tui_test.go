@@ -391,13 +391,128 @@ func TestPublicToggleIncludesForks(t *testing.T) {
 		t.Fatalf("expected private source after P+f, got %+v", m.rows)
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'*'}})
 	m = updated.(model)
-	if m.onlyPrivate || m.onlyPublic || m.onlyForks || m.onlyNonForks {
-		t.Fatalf("expected a to clear visibility filters, private=%v public=%v forks=%v sources=%v", m.onlyPrivate, m.onlyPublic, m.onlyForks, m.onlyNonForks)
+	if m.onlyPrivate || m.onlyPublic || m.onlyForks || m.onlyNonForks || m.onlyArchived || m.onlyNonArchived {
+		t.Fatalf("expected * to clear visibility filters, private=%v public=%v forks=%v sources=%v archived=%v active=%v", m.onlyPrivate, m.onlyPublic, m.onlyForks, m.onlyNonForks, m.onlyArchived, m.onlyNonArchived)
 	}
 	if len(m.rows) != 3 {
-		t.Fatalf("expected all 3 repos after a, got %+v", m.rows)
+		t.Fatalf("expected all 3 repos after *, got %+v", m.rows)
+	}
+}
+
+func TestArchivedFilters(t *testing.T) {
+	t1 := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 8, 10, 10, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 8, 5, 10, 0, 0, 0, time.UTC)
+	rep := Report{
+		Repos: []Item{
+			{Kind: KindRepo, Repo: "org/live", UpdatedAt: t1},
+			{Kind: KindRepo, Repo: "org/old", UpdatedAt: t2, Archived: true},
+			{Kind: KindRepo, Repo: "org/vault", UpdatedAt: t3, Private: true, Archived: true},
+		},
+	}
+	m := newModel()
+	m.loading = false
+	m.report = rep
+	m.groups = buildGroups(rep)
+	m.rebuildRows()
+	m.height = 24
+	m.width = 80
+
+	if !m.onlyNonArchived || m.onlyArchived {
+		t.Fatalf("expected default non-archived, archived=%v active=%v", m.onlyArchived, m.onlyNonArchived)
+	}
+	if len(m.rows) != 1 || m.rows[0].item.Repo != "org/live" {
+		t.Fatalf("default should hide archived, got %+v", m.rows)
+	}
+	view := stripANSI(m.View())
+	if strings.Contains(view, " · archived") {
+		t.Fatalf("did not expect archived label on default view:\n%s", view)
+	}
+	if strings.Contains(view, "org/old") || strings.Contains(view, "⊟") {
+		t.Fatalf("did not expect archived repos in default view:\n%s", view)
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m = updated.(model)
+	if !m.onlyArchived || m.onlyNonArchived {
+		t.Fatalf("expected A archived-only, archived=%v active=%v", m.onlyArchived, m.onlyNonArchived)
+	}
+	if len(m.rows) != 2 {
+		t.Fatalf("expected 2 archived repos, got %+v", m.rows)
+	}
+	for _, r := range m.rows {
+		if !r.item.Archived {
+			t.Fatalf("archived filter included live repo %s", r.item.Repo)
+		}
+	}
+	view = stripANSI(m.View())
+	if !strings.Contains(view, " · archived") {
+		t.Fatalf("expected archived label in title:\n%s", view)
+	}
+	if !strings.Contains(view, "⊟") || !strings.Contains(view, "org/old") {
+		t.Fatalf("expected archived type icon and repo in view:\n%s", view)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(model)
+	if !m.onlyNonArchived || m.onlyArchived {
+		t.Fatalf("expected a to replace A, archived=%v active=%v", m.onlyArchived, m.onlyNonArchived)
+	}
+	if len(m.rows) != 1 || m.rows[0].item.Repo != "org/live" {
+		t.Fatalf("expected live repo after a, got %+v", m.rows)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'*'}})
+	m = updated.(model)
+	if m.onlyArchived || m.onlyNonArchived {
+		t.Fatalf("expected * to show archived and active, archived=%v active=%v", m.onlyArchived, m.onlyNonArchived)
+	}
+	if len(m.rows) != 3 {
+		t.Fatalf("expected all 3 repos after *, got %+v", m.rows)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	m = updated.(model)
+	if len(m.rows) != 1 || m.rows[0].item.Repo != "org/vault" {
+		t.Fatalf("expected private archived repo after * then P, got %+v", m.rows)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m = updated.(model)
+	if !m.onlyArchived || !m.onlyPrivate {
+		t.Fatalf("expected A to stack with P, archived=%v private=%v", m.onlyArchived, m.onlyPrivate)
+	}
+	if len(m.rows) != 1 || m.rows[0].item.Repo != "org/vault" {
+		t.Fatalf("expected private archived after P+A, got %+v", m.rows)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'*'}})
+	m = updated.(model)
+	if m.onlyPrivate || m.onlyArchived || m.onlyNonArchived {
+		t.Fatalf("expected * to clear stacked filters")
+	}
+	if len(m.rows) != 3 {
+		t.Fatalf("expected all 3 after second *, got %+v", m.rows)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(model)
+	if !m.onlyNonArchived {
+		t.Fatal("expected a to hide archived again")
+	}
+	if len(m.rows) != 1 || m.rows[0].item.Repo != "org/live" {
+		t.Fatalf("expected live-only after a, got %+v", m.rows)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(model)
+	if m.onlyNonArchived {
+		t.Fatal("expected second a to show archived and active")
+	}
+	if len(m.rows) != 3 {
+		t.Fatalf("expected all 3 after toggling a off, got %+v", m.rows)
 	}
 }
 
@@ -525,6 +640,18 @@ func TestInspectorURLOnlyWithoutDescription(t *testing.T) {
 	got = stripANSI(renderInspectorLine(iss, 200, now))
 	if !strings.Contains(got, iss.URL) {
 		t.Fatalf("expected URL for issue without description: %q", got)
+	}
+
+	arch := Item{
+		Kind: KindRepo, Repo: "astrostl/old", Private: true, Fork: true, Archived: true,
+		Language: "Go", Stars: 2, Description: "packed away", UpdatedAt: now,
+	}
+	got = stripANSI(renderInspectorLine(arch, 200, now))
+	if !strings.Contains(got, "⊘ Private") || !strings.Contains(got, "⑂ Fork") || !strings.Contains(got, "⊟ Archived") {
+		t.Fatalf("expected private/fork/archived tags in inspector: %q", got)
+	}
+	if strings.Contains(got, "📦") {
+		t.Fatalf("did not expect package emoji for archived: %q", got)
 	}
 }
 

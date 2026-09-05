@@ -53,6 +53,9 @@ func (it Item) TypeEmoji() string {
 	if it.Fork {
 		emojis = append(emojis, "⑂")
 	}
+	if it.Archived {
+		emojis = append(emojis, "⊟")
+	}
 	return strings.Join(emojis, "")
 }
 
@@ -65,7 +68,7 @@ func (it Item) Tags() []string {
 		tags = append(tags, "⑂")
 	}
 	if it.Archived {
-		tags = append(tags, "archived")
+		tags = append(tags, "⊟")
 	}
 	return tags
 }

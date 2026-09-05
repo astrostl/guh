@@ -180,30 +180,32 @@ type repoItemsMsg struct {
 }
 
 type model struct {
-	report        Report
-	groups        []*repoGroup
-	expandedRepos map[string]bool
-	rows          []row
-	cursor        int
-	scroll        int
-	width         int
-	height        int
-	loading       bool
-	err           error
-	status        string
-	statusID      int
-	sortField     SortField
-	filterMode    bool
-	filterText    string
-	urlMode       bool
-	urlText       string
-	pendingRepo   string
-	showHelp      bool
-	now           time.Time
-	onlyPrivate   bool
-	onlyPublic    bool
-	onlyForks     bool
-	onlyNonForks  bool
+	report          Report
+	groups          []*repoGroup
+	expandedRepos   map[string]bool
+	rows            []row
+	cursor          int
+	scroll          int
+	width           int
+	height          int
+	loading         bool
+	err             error
+	status          string
+	statusID        int
+	sortField       SortField
+	filterMode      bool
+	filterText      string
+	urlMode         bool
+	urlText         string
+	pendingRepo     string
+	showHelp        bool
+	now             time.Time
+	onlyPrivate     bool
+	onlyPublic      bool
+	onlyForks       bool
+	onlyNonForks    bool
+	onlyArchived    bool
+	onlyNonArchived bool
 
 	owner       string
 	login       string
@@ -251,19 +253,20 @@ func newModelWith(demo bool) model {
 		now = demoNow
 	}
 	return model{
-		loading:       true,
-		width:         80,
-		height:        24,
-		sortField:     SortUpdated,
-		expandedRepos: make(map[string]bool),
-		now:           now,
-		fetchID:       1,
-		awaitRepos:    true,
-		awaitActivity: true,
-		awaitCommits:  true,
-		loadedRepos:   make(map[string]bool),
-		loadingRepos:  make(map[string]bool),
-		demo:          demo,
+		loading:         true,
+		width:           80,
+		height:          24,
+		sortField:       SortUpdated,
+		expandedRepos:   make(map[string]bool),
+		now:             now,
+		fetchID:         1,
+		awaitRepos:      true,
+		awaitActivity:   true,
+		awaitCommits:    true,
+		loadedRepos:     make(map[string]bool),
+		loadingRepos:    make(map[string]bool),
+		demo:            demo,
+		onlyNonArchived: true,
 	}
 }
 
@@ -724,14 +727,42 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ensureVisible()
 		m.setStatus(fmt.Sprintf("Sorted by %s", m.sortField))
 
-	case "a":
+	case "*":
 		m.onlyPrivate = false
 		m.onlyPublic = false
 		m.onlyForks = false
 		m.onlyNonForks = false
+		m.onlyArchived = false
+		m.onlyNonArchived = false
 		m.rebuildRows()
 		m.jumpToTop()
 		m.setStatus("Showing all repos")
+
+	case "a":
+		m.onlyNonArchived = !m.onlyNonArchived
+		if m.onlyNonArchived {
+			m.onlyArchived = false
+		}
+		m.rebuildRows()
+		m.jumpToTop()
+		if m.onlyNonArchived {
+			m.setStatus("Active repos only")
+		} else {
+			m.setStatus("Showing archived and active")
+		}
+
+	case "A", "shift+a":
+		m.onlyArchived = !m.onlyArchived
+		if m.onlyArchived {
+			m.onlyNonArchived = false
+		}
+		m.rebuildRows()
+		m.jumpToTop()
+		if m.onlyArchived {
+			m.setStatus("Archived only")
+		} else {
+			m.setStatus("Showing archived and active")
+		}
 
 	case "p":
 		m.onlyPublic = !m.onlyPublic
@@ -767,7 +798,7 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rebuildRows()
 		m.jumpToTop()
 		if m.onlyNonForks {
-			m.setStatus("Non-forks only")
+			m.setStatus("Source repos only")
 		} else {
 			m.setStatus("Showing forks and sources")
 		}
@@ -780,7 +811,7 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rebuildRows()
 		m.jumpToTop()
 		if m.onlyForks {
-			m.setStatus("Forks only")
+			m.setStatus("Forked repos only")
 		} else {
 			m.setStatus("Showing forks and sources")
 		}
@@ -1358,7 +1389,27 @@ func (m model) repoVisibilityOK(repo Item) bool {
 	if m.onlyNonForks && repo.Fork {
 		return false
 	}
+	if m.onlyArchived && !repo.Archived {
+		return false
+	}
+	if m.onlyNonArchived && repo.Archived {
+		return false
+	}
 	return true
+}
+
+func (m model) visibilityFilterOn() bool {
+	if m.onlyPrivate || m.onlyPublic || m.onlyForks || m.onlyNonForks || m.onlyArchived {
+		return true
+	}
+	if m.onlyNonArchived {
+		for _, g := range m.groups {
+			if g.repo.Archived {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m model) visibleRepoStats() (repos, commits, issues, prs, stars int) {
@@ -1587,7 +1638,7 @@ func (m model) View() string {
 	case len(m.rows) == 0:
 		if m.filterText != "" {
 			body = []string{styleMuted.Render(fmt.Sprintf("  No repositories matching %q (press Esc to clear)", m.filterText))}
-		} else if m.onlyPrivate || m.onlyPublic || m.onlyForks || m.onlyNonForks {
+		} else if m.visibilityFilterOn() {
 			body = []string{styleMuted.Render("  No repositories match the current visibility filters")}
 		} else {
 			body = []string{styleMuted.Render("  No repos, issues, or pull requests found")}
@@ -1630,7 +1681,7 @@ func (m model) View() string {
 
 	// Keybind hints footer
 	foldHint := "←→ un/fold · lh un/fold all"
-	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · t term · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s/S sort · / filter · ? help · q quit"))
+	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · t term · c commits · o orgs · u url · U you · * all · a/A arch · p/P pub · f/F src · s/S sort · / filter · ? help · q quit"))
 
 	titleLeft := styleTitle.Render("guh")
 	who := m.owner
@@ -1651,6 +1702,9 @@ func (m model) View() string {
 	}
 	if m.onlyNonForks {
 		titleLeft += styleMuted.Render(" · sources")
+	}
+	if m.onlyArchived {
+		titleLeft += styleMuted.Render(" · archived")
 	}
 	return renderFrame(m.width, m.height, titleLeft, titleRight, topOverlay, overlayAt, pinned, body, foot)
 }
@@ -1700,7 +1754,7 @@ func renderInspectorLine(item Item, width int, now time.Time) string {
 			tags = append(tags, styleMuted.Render("⑂ Fork"))
 		}
 		if item.Archived {
-			tags = append(tags, styleMuted.Render("📦 Archived"))
+			tags = append(tags, styleMuted.Render("⊟ Archived"))
 		}
 		if item.Language != "" {
 			tags = append(tags, styleTextDim.Render(item.Language))
@@ -2113,11 +2167,13 @@ func (m model) renderHelpModal() string {
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("o"), "Switch organization"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("u"), "Open a user, org, repo, or GitHub URL"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("U"), "Reset to your account"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("a"), "Show all repos"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("*"), "Show all repos"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("a"), "Toggle active repos only"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("A"), "Toggle archived repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("p"), "Toggle public repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("P"), "Toggle private repos only"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("f"), "Toggle non-forks only"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("F"), "Toggle forks only"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("f"), "Toggle source repos only"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("F"), "Toggle forked repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("s / S"), "Cycle sort right / left (Update, Name, Commits, Issues, PRs, Stars)"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("/"), "Search & filter repos / issues / PRs"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Esc"), "Clear search filter / close org picker"),

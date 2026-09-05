@@ -26,6 +26,16 @@ func TestItemLabel(t *testing.T) {
 			want: "astrostl/guh  ⊘ ⑂",
 		},
 		{
+			name: "archived",
+			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Archived: true},
+			want: "astrostl/guh  ⊟",
+		},
+		{
+			name: "private archived fork",
+			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Private: true, Fork: true, Archived: true},
+			want: "astrostl/guh  ⊘ ⑂ ⊟",
+		},
+		{
 			name: "issue",
 			item: Item{Kind: KindIssue, Repo: "astrostl/guh", Number: 3, Title: "Fix the thing"},
 			want: "astrostl/guh#3  Fix the thing",
@@ -70,6 +80,16 @@ func TestTypeEmoji(t *testing.T) {
 			name: "private fork repo",
 			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Private: true, Fork: true},
 			want: "⊘⑂",
+		},
+		{
+			name: "archived repo",
+			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Archived: true},
+			want: "⊟",
+		},
+		{
+			name: "private archived fork repo",
+			item: Item{Kind: KindRepo, Repo: "astrostl/guh", Private: true, Fork: true, Archived: true},
+			want: "⊘⑂⊟",
 		},
 		{
 			name: "issue",
