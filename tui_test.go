@@ -586,7 +586,7 @@ func TestViewMultiColumnLayout(t *testing.T) {
 	plain := stripANSI(view)
 
 	// Check for core frame, TYPE column, STARS column, UPDATE column & column headers (without DESCRIPTION)
-	for _, want := range []string{"╭", "╰", "│", "guh", "TYPE", "REPO", "COMMITS", "ISSUES", "PRS", "STARS", "UPDATE", "⊘", "⑂", "astrostl/a", "astrostl/b", "-1", "-6"} {
+	for _, want := range []string{"╭", "╰", "│", "guh", "TYPE", "REPO", "COMMITS", "ISSUES", "PRS", "STARS", "UPDATE", "⊘", "⑂", "astrostl/a", "astrostl/b", "-1", "-6", "←→ fold/unfold", "hl fold/unfold all"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q:\n%s", want, plain)
 		}
@@ -795,7 +795,7 @@ func TestOrgPickerSelectAndEscape(t *testing.T) {
 	}
 
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "Switch organization") || !strings.Contains(view, "acme") || !strings.Contains(view, "(you)") {
+	if !strings.Contains(view, "Switch user or organization") || !strings.Contains(view, "acme") || !strings.Contains(view, "(you)") || !strings.Contains(view, "esc/q close") {
 		t.Fatalf("org picker missing expected content:\n%s", view)
 	}
 
@@ -868,7 +868,7 @@ func TestURLPrompt(t *testing.T) {
 		t.Fatalf("prefill = %q", m.urlText)
 	}
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "User/org/repo:") {
+	if !strings.Contains(view, "User/org/repo/url:") {
 		t.Fatalf("missing URL prompt:\n%s", view)
 	}
 
@@ -1079,7 +1079,7 @@ func TestCommitsModal(t *testing.T) {
 
 	view := stripANSI(m.View())
 	wantDate := formatLocalDateTime(m.now.Add(-2 * time.Hour))
-	for _, want := range []string{"Recent commits", "astrostl/a", "abcdef1", "Fix the thing", "Ada", "Start project", "Bob", wantDate} {
+	for _, want := range []string{"Recent commits", "astrostl/a", "abcdef1", "Fix the thing", "Ada", "Start project", "Bob", wantDate, "t term", "esc/q/c close"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("commits modal missing %q:\n%s", want, view)
 		}
@@ -1104,19 +1104,54 @@ func TestCommitsModal(t *testing.T) {
 	}
 }
 
+func TestFooterKeyHints(t *testing.T) {
+	m := newModel()
+	m.loading = false
+	m.report = sampleReport()
+	m.groups = buildGroups(m.report)
+	m.rebuildRows()
+	m.height = 24
+	m.width = 220
+
+	plain := stripANSI(m.View())
+	wants := []string{
+		"←→ fold/unfold",
+		"hl fold/unfold all",
+		"a/A act/arch",
+		"p/P pub/priv",
+		"f/F src/fork",
+	}
+	for _, want := range wants {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("footer missing %q:\n%s", want, plain)
+		}
+	}
+}
+
 func TestHelpModalToggle(t *testing.T) {
 	m := newModel()
 	m.width = 80
-	m.height = 24
+	m.height = 40
 	m.showHelp = true
 
 	view := m.View()
 	plain := stripANSI(view)
-	if !strings.Contains(plain, "Keyboard Shortcuts") || !strings.Contains(plain, "Navigation") {
-		t.Fatalf("help modal missing expected content:\n%s", plain)
+	wants := []string{
+		"guh " + version + " — Keyboard Shortcuts",
+		"Navigation",
+		"Move by a page (also Ctrl+U / Ctrl+D)",
+		"Open the selection in the browser",
+		"~/src/<name>",
+		"Switch user or organization",
+		"Load a user, org, repo, or GitHub URL",
+		"Show all repos (clears visibility filters)",
+		"Clear filter or close overlay",
+		"Quit (q closes this help first)",
 	}
-	if !strings.Contains(plain, "~/src/<repo>") {
-		t.Fatalf("help modal missing t shortcut:\n%s", plain)
+	for _, want := range wants {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("help missing %q:\n%s", want, plain)
+		}
 	}
 }
 

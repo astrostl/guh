@@ -1661,7 +1661,7 @@ func (m model) View() string {
 
 	// Filter or Status line
 	if m.urlMode {
-		foot = append(foot, styleSearch.Render(fmt.Sprintf(" User/org/repo: %s_", m.urlText))+" "+styleMuted.Render("[Enter] go · [Esc] cancel"))
+		foot = append(foot, styleSearch.Render(fmt.Sprintf(" User/org/repo/url: %s_", m.urlText))+" "+styleMuted.Render("[Enter] go · [Esc] cancel"))
 	} else if m.filterMode {
 		foot = append(foot, styleSearch.Render(fmt.Sprintf(" 🔍 Filter: %s_", m.filterText))+" "+styleMuted.Render("[Enter] keep · [Esc] clear"))
 	} else if m.filterText != "" {
@@ -1680,8 +1680,8 @@ func (m model) View() string {
 	}
 
 	// Keybind hints footer
-	foldHint := "←→ un/fold · lh un/fold all"
-	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · t term · c commits · o orgs · u url · U you · * all · a/A arch · p/P pub · f/F src · s/S sort · / filter · ? help · q quit"))
+	foldHint := "←→ fold/unfold · hl fold/unfold all"
+	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · t term · c commits · o orgs · u url · U you · * all · a/A act/arch · p/P pub/priv · f/F src/fork · s/S sort · / filter · ? help · q quit"))
 
 	titleLeft := styleTitle.Render("guh")
 	who := m.owner
@@ -2138,7 +2138,7 @@ func renderChildRow(r row, selected bool, cw colWidths, width int, now time.Time
 }
 
 func (m model) renderHelpModal() string {
-	boxW := 54
+	boxW := 76
 	if boxW > m.width-4 {
 		boxW = m.width - 4
 	}
@@ -2147,27 +2147,27 @@ func (m model) renderHelpModal() string {
 	}
 
 	lines := []string{
-		styleTitle.Render("guh — Keyboard Shortcuts"),
+		styleTitle.Render(fmt.Sprintf("guh %s — Keyboard Shortcuts", version)),
 		"",
 		styleHeaderSort.Render("Navigation:"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("↑ / k, ↓ / j"), "Move cursor up / down"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("g / G, Home/End"), "Jump to top / bottom"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("PgUp / PgDn"), "Scroll by page"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("PgUp / PgDn"), "Move by a page (also Ctrl+U / Ctrl+D)"),
 		"",
 		styleHeaderSort.Render("Actions & Folding:"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("←"), "Fold the current repo"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("→"), "Unfold the current repo"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("h"), "Fold all repos"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("l"), "Unfold all repos"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Enter"), "Open repo, issue, PR, or commit in browser"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("t"), "Shell in ~/src/<repo>; Ctrl-D returns"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Enter"), "Open the selection in the browser"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("t"), "Shell in ~/src/<name>; Ctrl-D returns"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("c"), "Last 7 commits for the current repo"),
 		"",
 		styleHeaderSort.Render("View & Tools:"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("o"), "Switch organization"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("u"), "Open a user, org, repo, or GitHub URL"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("o"), "Switch user or organization"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("u"), "Load a user, org, repo, or GitHub URL"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("U"), "Reset to your account"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("*"), "Show all repos"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("*"), "Show all repos (clears visibility filters)"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("a"), "Toggle active repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("A"), "Toggle archived repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("p"), "Toggle public repos only"),
@@ -2176,10 +2176,10 @@ func (m model) renderHelpModal() string {
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("F"), "Toggle forked repos only"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("s / S"), "Cycle sort right / left (Update, Name, Commits, Issues, PRs, Stars)"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("/"), "Search & filter repos / issues / PRs"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Esc"), "Clear search filter / close org picker"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Esc"), "Clear filter or close overlay"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("r"), "Refresh data from GitHub"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("?"), "Toggle this help modal"),
-		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("q / Ctrl+C"), "Quit"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("?"), "Toggle this help"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("q / Ctrl+C"), "Quit (q closes this help first)"),
 	}
 
 	var framed []string
@@ -2250,7 +2250,7 @@ func (m model) renderCommitsModal() string {
 		}
 	}
 
-	lines = append(lines, "", styleHelp.Render("↑↓/jk move · enter open · esc close"))
+	lines = append(lines, "", styleHelp.Render("↑↓/jk move · enter open · t term · esc/q/c close"))
 
 	var framed []string
 	framed = append(framed, styleBorder.Render("╭"+strings.Repeat("─", boxW-2)+"╮"))
@@ -2271,7 +2271,7 @@ func (m model) renderOrgPicker() string {
 	}
 
 	lines := []string{
-		styleTitle.Render("Switch organization"),
+		styleTitle.Render("Switch user or organization"),
 		"",
 	}
 
@@ -2304,7 +2304,7 @@ func (m model) renderOrgPicker() string {
 		}
 	}
 
-	lines = append(lines, "", styleHelp.Render("↑↓/jk move · enter select · esc cancel"))
+	lines = append(lines, "", styleHelp.Render("↑↓/jk move · enter select · esc/q close"))
 
 	var framed []string
 	framed = append(framed, styleBorder.Render("╭"+strings.Repeat("─", boxW-2)+"╮"))

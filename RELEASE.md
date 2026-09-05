@@ -31,7 +31,7 @@ Commit the README updates as part of the release commit in step 5.
 
 ### 3. Smoke-test the binary
 
-Confirm the version stamp and that the test suite still passes.
+Confirm the version stamp and that the test suite still passes. Always pass `VERSION=` here — a plain `make build` uses `git describe --tags --always --dirty`, so uncommitted files stamp as `vX.Y.Z-dirty` (visible in `--version` and `?`). That is fine for local work and goes away with a clean tree or an explicit `VERSION=`.
 
 ```sh
 make test
@@ -40,13 +40,17 @@ make build VERSION=v1.2.3
 # expect: guh v1.2.3
 ```
 
-Do not proceed if `--version` prints `dev` or a dirty git describe — the ldflags did not stamp.
+Do not proceed if `--version` prints `dev`, `-dirty`, a `git describe` suffix (`v1.2.3-1-gabc1234`), or anything other than `guh v1.2.3`.
 
 ### 4. Run the release target
+
+`VERSION=vMAJOR.MINOR.PATCH` is required. `make release` (and `package-macos` / `checksums` / `update-formula`) refuse the default `git describe --dirty` stamp and reject any VERSION with a suffix. After packaging they check that the native dist binary prints `guh v1.2.3`.
 
 ```sh
 make release VERSION=v1.2.3
 ```
+
+Do not run `make release` without `VERSION=`. That used to stamp whatever `git describe --dirty` said, including `-dirty`.
 
 This will:
 - Verify `gofmt -s` formatting, `LICENSE` presence, and `go vet` (`lint`)
@@ -55,15 +59,24 @@ This will:
 - Package the macOS binaries into tarballs (`dist/guh-v1.2.3-darwin-{arm64,amd64}.tar.gz`)
 - Compute SHA256 checksums
 - Patch `Formula/guh.rb` in place with the new version, URLs, and SHA256s
+- Confirm the native `dist/` binary `--version` matches `guh v1.2.3`
 
 ### 5. Commit and tag
 
+Commit every file that belongs in the release (source, tests, README, formula, GIF), not only the formula. Do not tag a dirty tree.
+
 ```sh
-git add README.md Formula/guh.rb guh.gif
+git add -u
+git status                 # review; no leftover unstaged files
 git commit -m "Release v1.2.3"
+test -z "$(git status --porcelain)"   # abort if anything is still dirty
+git describe --tags --dirty | grep -q -- '-dirty$' && { echo "refusing dirty tree"; exit 1; }
 git tag v1.2.3
+test "$(git describe --tags --dirty)" = "v1.2.3"   # abort if the tag does not match a clean tree
 git push origin master v1.2.3
 ```
+
+If `git describe --dirty` ends in `-dirty`, stop: the working tree still has uncommitted files and you would be tagging an incomplete tree. After the tag exists it must equal `v1.2.3` with no suffix.
 
 ### 6. Create the GitHub release and upload artifacts
 
@@ -118,7 +131,7 @@ guh --version
 | `make package-macos` | Tars the macOS binaries into versioned `.tar.gz` files |
 | `make checksums` | Runs `shasum -a 256` and writes `dist/checksums.txt` |
 | `make update-formula` | Patches `Formula/guh.rb` with new version and SHA256s |
-| `make release` | Runs lint, records the demo GIF, then all of the above and prints next steps |
+| `make release VERSION=v1.2.3` | Requires an exact `vMAJOR.MINOR.PATCH` (refuses `-dirty` / git describe). Runs lint, records the demo GIF, packages, verifies the stamped `--version`, and prints next steps |
 | `make clean` | Removes `./guh` and `./dist` |
 
 ## How the Homebrew tap works
