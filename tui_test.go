@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -984,6 +987,94 @@ func TestHelpModalToggle(t *testing.T) {
 	plain := stripANSI(view)
 	if !strings.Contains(plain, "Keyboard Shortcuts") || !strings.Contains(plain, "Navigation") {
 		t.Fatalf("help modal missing expected content:\n%s", plain)
+	}
+	if !strings.Contains(plain, "~/src/<repo>") {
+		t.Fatalf("help modal missing t shortcut:\n%s", plain)
+	}
+}
+
+func TestDropToTerminal(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origSrc := srcReposDir
+	srcReposDir = func() string { return root }
+	t.Cleanup(func() { srcReposDir = origSrc })
+
+	origShell := startLocalShell
+	startLocalShell = func(dir string) tea.Cmd {
+		return func() tea.Msg { return shellDoneMsg{dir: dir} }
+	}
+	t.Cleanup(func() { startLocalShell = origShell })
+
+	m := newModel()
+	m.loading = false
+	m.report = sampleReport()
+	m.groups = buildGroups(m.report)
+	m.setAllExpanded(true)
+	m.height = 24
+	m.width = 80
+
+	wantA := filepath.Join(root, "a")
+
+	// rows: [0: repo a, 1: issue a#1, 2: repo b, 3: pr b#2]
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected shell cmd for local clone")
+	}
+	msg, ok := cmd().(shellDoneMsg)
+	if !ok || msg.dir != wantA {
+		t.Fatalf("repo shell = %#v, want dir %s", msg, wantA)
+	}
+
+	m.cursor = 1
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected shell cmd from issue row")
+	}
+	msg, ok = cmd().(shellDoneMsg)
+	if !ok || msg.dir != wantA {
+		t.Fatalf("issue shell = %#v, want dir %s", msg, wantA)
+	}
+
+	m.cursor = 3
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("expected no cmd when ~/src/b is missing")
+	}
+	if !strings.Contains(m.status, "~/src/b") {
+		t.Fatalf("status = %q, want missing clone message", m.status)
+	}
+
+	m.cursor = 2
+	m.showCommits = true
+	m.commitsRepo = "astrostl/a"
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("expected shell cmd from commits modal")
+	}
+	msg, ok = cmd().(shellDoneMsg)
+	if !ok || msg.dir != wantA {
+		t.Fatalf("commits shell = %#v, want dir %s", msg, wantA)
+	}
+
+	m.status = ""
+	updated, _ = m.Update(shellDoneMsg{dir: wantA})
+	m = updated.(model)
+	if m.status != "" {
+		t.Fatalf("status after return = %q, want empty", m.status)
+	}
+
+	updated, _ = m.Update(shellDoneMsg{dir: wantA, err: fmt.Errorf("exec: no such file")})
+	m = updated.(model)
+	if m.status != "exec: no such file" {
+		t.Fatalf("status after shell error = %q", m.status)
 	}
 }
 

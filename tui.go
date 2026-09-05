@@ -576,6 +576,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case shellDoneMsg:
+		if err := msg.statusError(); err != nil {
+			m.setStatus(err.Error())
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.urlMode {
 			return m.handleURLKey(msg)
@@ -807,6 +813,9 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m, m.openSelected()
 
+	case "t":
+		return m.dropToTerminal()
+
 	case "o":
 		return m.openOrgPicker()
 
@@ -828,6 +837,28 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) dropToTerminal() (tea.Model, tea.Cmd) {
+	repo := m.activeRepoName()
+	if m.showCommits && m.commitsRepo != "" {
+		repo = m.commitsRepo
+	}
+	if repo == "" {
+		m.setStatus("No repo selected")
+		return m, nil
+	}
+	name := repoShortName(repo)
+	dir, ok := localRepoDir(repo)
+	if !ok {
+		if name == "" {
+			m.setStatus("No repo selected")
+		} else {
+			m.setStatus(fmt.Sprintf("No local clone at ~/src/%s", name))
+		}
+		return m, nil
+	}
+	return m, startLocalShell(dir)
 }
 
 func (m model) openCommits() (tea.Model, tea.Cmd) {
@@ -853,6 +884,8 @@ func (m model) handleCommitsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showCommits = false
 		m.commitsLoading = false
 		return m, nil
+	case "t":
+		return m.dropToTerminal()
 	}
 
 	if m.commitsLoading {
@@ -1597,7 +1630,7 @@ func (m model) View() string {
 
 	// Keybind hints footer
 	foldHint := "←→ un/fold · lh un/fold all"
-	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s/S sort · / filter · ? help · q quit"))
+	foot = append(foot, styleHelp.Render("↑↓/jk move · "+foldHint+" · enter open · t term · c commits · o orgs · u url · U you · a all · p/P pub · f/F src · s/S sort · / filter · ? help · q quit"))
 
 	titleLeft := styleTitle.Render("guh")
 	who := m.owner
@@ -2073,6 +2106,7 @@ func (m model) renderHelpModal() string {
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("h"), "Fold all repos"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("l"), "Unfold all repos"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("Enter"), "Open repo, issue, PR, or commit in browser"),
+		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("t"), "Shell in ~/src/<repo>; Ctrl-D returns"),
 		fmt.Sprintf("  %-16s %s", styleHelpKey.Render("c"), "Last 7 commits for the current repo"),
 		"",
 		styleHeaderSort.Render("View & Tools:"),
