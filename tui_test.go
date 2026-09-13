@@ -529,8 +529,8 @@ func TestSelectedCursorIsMagenta(t *testing.T) {
 	if !strings.Contains(got, "207") {
 		t.Fatalf("expected main cursor color 207 in selected row, got %q", got)
 	}
-	if !strings.Contains(stripANSI(got), "▸ owner/name") {
-		t.Fatalf("expected fold marker on selected unfoldable row: %q", stripANSI(got))
+	if !strings.Contains(stripANSI(got), "● owner/name") {
+		t.Fatalf("expected circle pointer on selected unfoldable row: %q", stripANSI(got))
 	}
 }
 
@@ -541,13 +541,13 @@ func TestUnfoldableIndicator(t *testing.T) {
 	if got := repoPrefix(row{issuesCount: 1, expanded: true}, false); got != "▾ " {
 		t.Fatalf("expanded unfoldable prefix = %q", got)
 	}
-	if got := repoPrefix(row{prsCount: 2}, true); got != "▸ " {
+	if got := repoPrefix(row{prsCount: 2}, true); got != "● " {
 		t.Fatalf("selected collapsed unfoldable prefix = %q", got)
 	}
 	if got := repoPrefix(row{}, false); got != "  " {
 		t.Fatalf("leaf prefix = %q", got)
 	}
-	if got := repoPrefix(row{}, true); got != "▸ " {
+	if got := repoPrefix(row{}, true); got != "● " {
 		t.Fatalf("selected leaf prefix = %q", got)
 	}
 
@@ -559,14 +559,14 @@ func TestUnfoldableIndicator(t *testing.T) {
 	m.height = 24
 	m.width = 100
 	plain := stripANSI(m.View())
-	if !strings.Contains(plain, "▸ astrostl/a") || !strings.Contains(plain, "▸ astrostl/b") {
-		t.Fatalf("expected collapsed unfold markers:\n%s", plain)
+	if !strings.Contains(plain, "● astrostl/a") || !strings.Contains(plain, "▸ astrostl/b") {
+		t.Fatalf("expected circle pointer on selected row and collapsed unfold marker on the rest:\n%s", plain)
 	}
 
 	m.setAllExpanded(true)
 	plain = stripANSI(m.View())
-	if !strings.Contains(plain, "▾ astrostl/a") || !strings.Contains(plain, "▾ astrostl/b") {
-		t.Fatalf("expected expanded unfold markers:\n%s", plain)
+	if !strings.Contains(plain, "● astrostl/a") || !strings.Contains(plain, "▾ astrostl/b") {
+		t.Fatalf("expected circle pointer on selected row and expanded unfold marker on the rest:\n%s", plain)
 	}
 }
 
@@ -1264,6 +1264,15 @@ func TestKeyUpdateMessages(t *testing.T) {
 	}
 	if msg := cmd(); msg != tea.Quit() {
 		t.Fatalf("expected tea.Quit, got %#v", msg)
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_ = updated
+	if cmd == nil {
+		t.Fatal("expected ctrl+d quit cmd")
+	}
+	if msg := cmd(); msg != tea.Quit() {
+		t.Fatalf("expected tea.Quit from ctrl+d, got %#v", msg)
 	}
 }
 

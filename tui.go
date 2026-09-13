@@ -34,6 +34,10 @@ const (
 	cHeaderFg = "252"
 	cSearchBg = "238"
 	cSearchFg = cMain
+
+	cursorMark    = "● "
+	foldCollapsed = "▸ "
+	foldExpanded  = "▾ "
 )
 
 // Styles
@@ -684,7 +688,7 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "q", "ctrl+c", "ctrl+d":
 		return m, tea.Quit
 	case "?":
 		m.showHelp = !m.showHelp
@@ -832,7 +836,7 @@ func (m model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.nextRepoItemsCmd()
 	case "pgup", "ctrl+u":
 		m.move(-m.pageSize())
-	case "pgdown", "ctrl+d":
+	case "pgdown":
 		m.move(m.pageSize())
 	case "home", "g":
 		m.cursor = firstSelectable(m.rows, 0)
@@ -909,7 +913,7 @@ func (m model) openCommits() (tea.Model, tea.Cmd) {
 
 func (m model) handleCommitsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
+	case "ctrl+c", "ctrl+d":
 		return m, tea.Quit
 	case "esc", "q", "c":
 		m.showCommits = false
@@ -964,7 +968,7 @@ func (m model) openOrgPicker() (tea.Model, tea.Cmd) {
 
 func (m model) handleOrgPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
+	case "ctrl+c", "ctrl+d":
 		return m, tea.Quit
 	case "esc", "q":
 		m.showOrgs = false
@@ -1977,14 +1981,14 @@ func (m model) commitsReady() bool {
 }
 
 func repoPrefix(r row, selected bool) string {
+	if selected {
+		return cursorMark
+	}
 	if r.unfoldable() {
 		if r.expanded {
-			return "▾ "
+			return foldExpanded
 		}
-		return "▸ "
-	}
-	if selected {
-		return "▸ "
+		return foldCollapsed
 	}
 	return "  "
 }
@@ -2072,7 +2076,7 @@ func renderChildRow(r row, selected bool, cw colWidths, width int, now time.Time
 	}
 	prefix := "  " + branch
 	if selected {
-		prefix = styleCursor.Render("▸ ") + styleSelected.Render(branch)
+		prefix = styleCursor.Render(cursorMark) + styleSelected.Render(branch)
 	}
 
 	// Child rows have empty TYPE column to align cleanly under repo name
@@ -2234,7 +2238,7 @@ func (m model) renderCommitsModal() string {
 				}
 			}
 			if i == m.commitCursor {
-				lines = append(lines, styleCursor.Render("▸ ")+styleSelected.Render(truncate(c.ShortSHA()+"  "+c.Title, inner-2)))
+				lines = append(lines, styleCursor.Render(cursorMark)+styleSelected.Render(truncate(c.ShortSHA()+"  "+c.Title, inner-2)))
 				if meta != "" {
 					lines = append(lines, styleSelected.Render("  "+truncate(meta, inner-2)))
 				}
@@ -2293,7 +2297,7 @@ func (m model) renderOrgPicker() string {
 			cursor := "  "
 			row := label
 			if i == m.orgCursor {
-				cursor = "▸ "
+				cursor = cursorMark
 				row = styleSelected.Render(label)
 			} else if m.owner == "" && m.login != "" && strings.EqualFold(name, m.login) {
 				row = styleText.Render(label)
