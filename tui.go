@@ -1981,14 +1981,14 @@ func (m model) commitsReady() bool {
 }
 
 func repoPrefix(r row, selected bool) string {
-	if selected {
-		return cursorMark
-	}
 	if r.unfoldable() {
 		if r.expanded {
 			return foldExpanded
 		}
 		return foldCollapsed
+	}
+	if selected {
+		return cursorMark
 	}
 	return "  "
 }
